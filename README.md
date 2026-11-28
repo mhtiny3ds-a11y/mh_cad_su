@@ -28,6 +28,9 @@ Phần mềm CAD 2D **miễn phí, mã nguồn mở**, chạy ngay trên trình 
   - sửa đổi: LENGTHEN, DIVIDE, MEASURE, OVERKILL, ALIGN, PEDIT, ARRAYPATH…;
   - kích thước: DIMBASELINE, DIMORDINATE, DIMARC, QDIM, MLEADER;
   - TABLE (dán từ Excel), WIPEOUT, GOPY (góp ý bằng đám mây đỏ), CAL, MASSPROP, PURGE, WBLOCK.
+- **AutoLISP**: gõ `(…)` ngay trên dòng lệnh, APPLOAD / kéo-thả tệp `.lsp` (tự nạp lại lần sau), `defun C:XXX` thành lệnh;
+  có `command`, `entmake` / `entget` / `entmod`, `ssget` có bộ lọc, `vlax-curve-*`, `vla-get/put-*`, `getpoint`…; LSPCHECK quét hàm
+  chưa hỗ trợ
 - Thanh thuộc tính: layer, màu, kiểu đường hiện hành; Ctrl+X / Ctrl+Shift+C / Ctrl+Shift+V; F2 lịch sử lệnh; Ctrl+0 toàn màn hình
 - Chọn bằng bấm, khung trái→phải (nằm trọn) và phải→trái (chạm khung)
 - Layer: tạo, màu, đặt hiện hành, khoá/tắt

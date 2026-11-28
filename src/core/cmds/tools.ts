@@ -978,7 +978,8 @@ const SETVAR: CommandDef = {
       const k = Number(v);
       if (!(k > 0)) throw new Error('DIMSCALE phải > 0');
       const s = ctx.doc.dimStyle;
-      const base = ctx.doc.getVar<number>('DIMSCALE', 1);
+      // Kiểu kích thước mặc định (chữ cao 250) tương ứng DIMSCALE = 100 với chữ 2,5 trên giấy.
+      const base = ctx.doc.getVar<number>('DIMSCALE', 100);
       const f = k / base;
       ctx.doc.setDimStyle({ txt: s.txt * f, asz: s.asz * f, exo: s.exo * f, exe: s.exe * f, gap: s.gap * f });
       ctx.doc.setVar('DIMSCALE', k);

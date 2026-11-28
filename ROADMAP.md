@@ -61,16 +61,24 @@ Nguyên tắc: làm **ít lệnh nhưng chạy chắc**, có kiểm thử. Mỗi
 - ✅ Thanh menu 12 mục, thanh thuộc tính (layer / màu / kiểu đường hiện hành)
 - ✅ Lệnh chưa có hỏi đáp riêng tự hỏi tham số bắt buộc trên dòng lệnh
 
+## ✅ v0.4 (phần 3) — AutoLISP
+
+- ✅ Bộ thông dịch AutoLISP: số nguyên / thực, danh sách, cặp chấm, defun / lambda (phạm vi động), *error*, vl-catch-all-apply
+- ✅ (command …): dùng lại phần hỏi đáp của lệnh MHCAD; xử lý riêng -LAYER, -HATCH (HPSCALE, tên mẫu quen thuộc), TEXT, MTEXT,
+  -INSERT, -BLOCK, ZOOM, UNDO
+- ✅ entget / entmake (kể cả BLOCK…ENDBLK, LAYER) / entmod / entdel, ssget ("_X" có lọc <OR, "_W", "_C", "_WP", "_F"…),
+  tblsearch / tblnext, getvar / setvar (DIMSCALE, DIMTXT, HPSCALE…), get* hỏi người dùng, vlax-curve-*, vla-get/put-*, ACET
+- ✅ APPLOAD, kéo-thả .lsp, tự nạp lisp lần sau, gõ lisp trên dòng lệnh (nhiều dòng), LSPCHECK, mhcad.lisp() cho AI
+
 ## v0.4 — Còn thiếu
 
 - [ ] Chuyển mã TCVN3 / VNI → Unicode khi mở file cũ
-- [ ] AutoLISP (trình thông dịch tập con)
 - [ ] Layout / paper space, viewport, khung tên
 - [ ] Kích thước đọc từ DXF giữ được giá trị đo (hiện hiển thị qua block hình vẽ gốc)
 - [ ] Đa tuyến có cung (bulge) giữ nguyên khi sửa (hiện chia thành đoạn thẳng)
 - [ ] FILLET/CHAMFER cho đa tuyến và cung; OFFSET có cung
 - [ ] Đường dóng theo điểm (object tracking)
-- [ ] AutoLISP (trình thông dịch + APPLOAD), độ dày nét (lineweight), thuộc tính block (ATTDEF / ATTEDIT), GROUP, BEDIT
+- [ ] Hộp thoại DCL cho lisp, độ dày nét (lineweight), thuộc tính block (ATTDEF / ATTEDIT), GROUP, BEDIT
 - [ ] PDFIMPORT, GRADIENT, thư viện mẫu hatch, nhập ảnh tham chiếu
 - [ ] Ghi DXF R2000+ (LWPOLYLINE, HATCH gốc, handle), giữ lại dữ liệu chưa hiểu khi ghi lại
 - [ ] Bảng alias tự sửa; nạp file `.pgp` của người dùng; WBLOCK, thư viện block

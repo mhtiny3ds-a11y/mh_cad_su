@@ -2,6 +2,7 @@
 
 import { type Vec, angleOf, dist, len, polar, rad2deg, sub } from '../core/geom';
 import { type DocState, type DrawingData, Drawing } from '../core/document';
+import { type LispRuntime, attachLisp } from '../core/lisp/index';
 import {
   type Ctx,
   type IO,
@@ -257,6 +258,11 @@ const MENUS: { label: string; items: MenuItem[] }[] = [
       { label: 'Thông tin đối tượng', cmd: 'LIST' },
       { label: 'Máy tính', cmd: 'CAL' },
       '-',
+      { label: 'Nạp AutoLISP…', cmd: 'APPLOAD' },
+      { label: 'Chạy mã AutoLISP', cmd: 'LISP' },
+      { label: 'Kiểm tra lisp có chạy được', cmd: 'LSPCHECK' },
+      { label: 'Bỏ lisp tự nạp', cmd: 'LISPCLEAR' },
+      '-',
       { label: 'Đặt biến bản vẽ', cmd: 'SETVAR' },
       { label: 'Bắt điểm', act: 'snap', key: 'F3' },
       { label: 'Lưới', act: 'grid', key: 'F7' },
@@ -383,6 +389,9 @@ export class App {
   readonly reg: Registry = createRegistry();
   readonly vp = new Viewport();
   readonly api: MhcadApi;
+  readonly lisp: LispRuntime;
+  /** Biểu thức lisp gõ dở nhiều dòng (thiếu ngoặc đóng). */
+  private lispBuf = '';
   private selection = new Set<number>();
   private ctx: Ctx;
   private canvas!: HTMLCanvasElement;
@@ -452,7 +461,9 @@ export class App {
       print: (m) => this.print(m),
       ui: (a, args) => this.uiAction(a, args),
     };
+    this.lisp = attachLisp(this.reg, () => this.ctx);
     this.api = createApi({
+      lisp: this.lisp,
       doc: this.doc,
       reg: this.reg,
       ctx: () => this.ctx,
@@ -549,6 +560,7 @@ export class App {
         <span class="units" id="units">mm</span>
       </footer>
       <input type="file" id="file" accept=".dxf,.DXF,.dwg,.DWG" hidden />
+      <input type="file" id="lspfile" accept=".lsp,.LSP,.txt" multiple hidden />
       <dialog id="help"></dialog>
       <dialog id="layers"></dialog>
       <dialog id="plot"></dialog>
@@ -595,6 +607,7 @@ export class App {
     this.refreshToggles();
     this.updatePrompt();
     this.print(`MHCAD ${VERSION} — phần mềm CAD miễn phí, mã nguồn mở. Gõ lệnh hoặc bấm F1 để xem trợ giúp.`);
+    void this.autoloadLisp();
     this.input.focus();
     this.redraw();
   }
@@ -651,6 +664,12 @@ export class App {
     };
     colorSel.addEventListener('change', () => applyProp('color', colorSel.value));
     ltSel.addEventListener('change', () => applyProp('linetype', ltSel.value));
+    const lspInput = this.root.querySelector<HTMLInputElement>('#lspfile')!;
+    lspInput.addEventListener('change', () => {
+      const fs = [...(lspInput.files ?? [])];
+      lspInput.value = '';
+      if (fs.length) void this.loadLispFiles(fs);
+    });
     this.fileInput.addEventListener('change', async () => {
       const f = this.fileInput.files?.[0];
       this.fileInput.value = '';
@@ -667,7 +686,10 @@ export class App {
     stage.addEventListener('drop', (e) => {
       e.preventDefault();
       stage.classList.remove('drop');
-      const f = e.dataTransfer?.files?.[0];
+      const files = [...(e.dataTransfer?.files ?? [])];
+      const lsps = files.filter((x) => /\.lsp$/i.test(x.name));
+      if (lsps.length) return void this.loadLispFiles(lsps);
+      const f = files[0];
       if (f) void this.openFile(f);
     });
   }
@@ -1394,7 +1416,9 @@ export class App {
         return;
       }
       const up = text.toUpperCase();
-      if (up === 'U' || up === 'UNDO') return void this.undo();
+      if (up === 'U') return void this.undo();
+      // Biểu thức AutoLISP gõ trực tiếp: (…) hoặc !biến
+      if (this.lispBuf || text.startsWith('(') || /^![^\s]+$/.test(text)) return void this.lispLine(raw);
       if (up === 'REDO') return void this.redo();
       if (up === 'HELP' || up === '?') return void this.showHelp();
       if (up === 'NEW') return void this.action('new');
@@ -1529,6 +1553,91 @@ export class App {
   }
 
   /** Chạy một luồng tương tác (lệnh hoặc sửa grip) với vòng đời chung. */
+  // ---------- AutoLISP ----------
+
+  /** Một dòng lisp từ dòng lệnh; thiếu ngoặc đóng thì chờ dòng tiếp. */
+  private lispLine(raw: string): void {
+    let code = (this.lispBuf ? this.lispBuf + '\n' : '') + raw;
+    if (/^!/.test(code.trim())) code = code.trim().slice(1);
+    let depth = 0;
+    let inStr = false;
+    for (let i = 0; i < code.length; i++) {
+      const c = code[i];
+      if (inStr) {
+        if (c === '\\') i++;
+        else if (c === '"') inStr = false;
+      } else if (c === '"') inStr = true;
+      else if (c === ';') while (i < code.length && code[i] !== '\n') i++;
+      else if (c === '(') depth++;
+      else if (c === ')') depth--;
+    }
+    this.echo(raw, !this.lispBuf);
+    if (depth > 0) {
+      this.lispBuf = code;
+      this.promptEl.textContent = `(${'_'.repeat(Math.min(depth, 5))}>`;
+      return;
+    }
+    this.lispBuf = '';
+    this.launch('LISP', async () => {
+      const r = await this.lisp.run(code, this.io);
+      if (r.output.trim()) this.print(r.output.replace(/^\n+/, '').trimEnd());
+      this.print(r.error ? `; lỗi: ${r.error}` : r.value);
+      this.lispCmdsChanged();
+    });
+  }
+
+  /** Nạp tệp .lsp (APPLOAD / kéo-thả); ghi nhớ để tự nạp lần sau. */
+  private async loadLispFiles(files: File[]): Promise<void> {
+    const saved = this.lispStartup();
+    for (const f of files) {
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      let code: string;
+      try {
+        code = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      } catch {
+        code = new TextDecoder('windows-1258').decode(bytes);
+      }
+      const before = new Set(this.lisp.commands());
+      const r = await this.lisp.load(f.name, code, null);
+      const added = this.lisp.commands().filter((c) => !before.has(c));
+      if (r.error) this.print(`Nạp ${f.name}: lỗi ${r.error}`);
+      else this.print(`Đã nạp ${f.name}${added.length ? ` — lệnh mới: ${added.join(', ')}` : ''}`);
+      const miss = this.lisp.check(code);
+      if (miss.length) this.print(`  Chưa hỗ trợ: ${miss.slice(0, 12).join(', ')}${miss.length > 12 ? '…' : ''}`);
+      saved[f.name] = code;
+    }
+    store.set('mhcad.lisp', JSON.stringify(saved));
+    this.lispCmdsChanged();
+    this.input.focus();
+  }
+
+  private lispStartup(): Record<string, string> {
+    try {
+      return JSON.parse(store.get('mhcad.lisp') ?? '{}') as Record<string, string>;
+    } catch {
+      return {};
+    }
+  }
+
+  /** Tự nạp lisp đã dùng lần trước. */
+  private async autoloadLisp(): Promise<void> {
+    const saved = this.lispStartup();
+    const names = Object.keys(saved);
+    if (!names.length) return;
+    for (const n of names) {
+      const r = await this.lisp.load(n, saved[n], null);
+      if (r.error) this.print(`Tự nạp ${n}: lỗi ${r.error}`);
+    }
+    // Nạp lisp không tính là sửa bản vẽ.
+    this.doc.dirty = false;
+    this.print(`Đã tự nạp ${names.length} tệp lisp (${this.lisp.commands().length} lệnh). Gõ APPLOAD để quản lý.`);
+    this.lispCmdsChanged();
+  }
+
+  private lispCmdsChanged(): void {
+    this.closeAutocomplete();
+  }
+
   private launch(name: string, flow: () => Promise<void>): void {
     this.runningName = name;
     this.running = flow()
@@ -1668,6 +1777,12 @@ export class App {
       case 'download':
         this.download(String(args.content), String(args.name), String(args.type ?? 'application/octet-stream'));
         return;
+      case 'appload':
+        setTimeout(() => this.root.querySelector<HTMLInputElement>('#lspfile')!.click(), 0);
+        return { message: `Lisp tự nạp: ${Object.keys(this.lispStartup()).join(', ') || 'chưa có'}` };
+      case 'lispclear':
+        store.set('mhcad.lisp', '{}');
+        return { message: 'Đã bỏ danh sách lisp tự nạp (có hiệu lực từ lần mở sau)' };
     }
     throw new Error(`Thao tác giao diện chưa hỗ trợ: ${a}`);
   }

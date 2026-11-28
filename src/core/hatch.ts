@@ -43,6 +43,28 @@ export const PATTERNS: Record<string, PatDef> = {
 };
 
 /** Sinh các họ đường của mẫu theo tỉ lệ và góc. */
+/** Tên mẫu quen thuộc trong bản vẽ / lisp → mẫu tương đương của MHCAD (chỉ là ánh xạ tên, không chép tệp .pat). */
+export const PAT_ALIAS: Record<string, string> = {
+  ANSI31: 'LINE45',
+  ANSI32: 'STEEL',
+  ANSI37: 'CROSS45',
+  ANSI38: 'DASH45',
+  NET: 'CROSS',
+  'AR-CONC': 'CONCRETE',
+  'AR-SAND': 'DOTS',
+  GRAVEL: 'DOTS',
+  'AR-B816': 'BRICK',
+  'AR-BRSTD': 'BRICK',
+  'AR-HBONE': 'BRICK',
+  HEX: 'HONEY',
+};
+
+/** Chuẩn hoá tên mẫu: bỏ "_" đầu, viết hoa, đổi tên quen thuộc sang mẫu của MHCAD. */
+export function resolvePattern(n: string): string {
+  const u = n.toUpperCase().replace(/^_/, '');
+  return PATTERNS[u] ? u : (PAT_ALIAS[u] ?? u);
+}
+
 export function patternLines(name: string, scale: number, angle: number): PatLine[] {
   const def = PATTERNS[name.toUpperCase()];
   if (!def) throw new Error(`Không có mẫu "${name}". Các mẫu: ${Object.keys(PATTERNS).join(', ')}`);
