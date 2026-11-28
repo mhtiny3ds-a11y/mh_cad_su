@@ -4,6 +4,7 @@ import type { BBox } from './geom';
 import { deg2rad, polar } from './geom';
 import type { Drawing } from './document';
 import { type NewEntity, expand } from './entities';
+import { hatchSegments } from './hatch';
 
 export const PAPERS: Record<string, [number, number]> = {
   A4: [297, 210],
@@ -93,6 +94,18 @@ export function plotSvg(doc: Drawing, o: PlotOptions): PlotResult {
       case 'LWPOLYLINE': {
         const d = e.pts.map((p, i) => `${i ? 'L' : 'M'}${f(p[0])} ${f(p[1])}`).join('') + (e.closed ? 'Z' : '');
         out.push(e.fill ? `<path d="${d}" fill="${col}" stroke="none"/>` : `<path d="${d}" ${st}/>`);
+        break;
+      }
+      case 'POINT':
+        out.push(`<circle cx="${f(e.p[0])}" cy="${f(e.p[1])}" r="${f(stroke * 1.5)}" fill="${col}"/>`);
+        break;
+      case 'HATCH': {
+        const d = e.loops.map((l) => l.map((p, i) => `${i ? 'L' : 'M'}${f(p[0])} ${f(p[1])}`).join('') + 'Z').join('');
+        if (e.solid) out.push(`<path d="${d}" fill="${col}" fill-rule="evenodd" stroke="none"/>`);
+        else {
+          const segs = hatchSegments(e.loops, e.lines, 20000) ?? [];
+          out.push(`<path d="${segs.map(([a, b]) => `M${f(a[0])} ${f(a[1])}L${f(b[0])} ${f(b[1])}`).join('')}" fill="none" stroke="${col}" stroke-width="${f(stroke * 0.7)}"/>`);
+        }
         break;
       }
       case 'TEXT': {

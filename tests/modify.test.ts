@@ -288,3 +288,45 @@ describe('Layer', () => {
     expect(doc.entities.size).toBe(1);
   });
 });
+
+describe('HATCH', () => {
+  it('bấm điểm trong vùng tạo bởi các đoạn thẳng rời, nhận đảo', () => {
+    const { doc, api, first } = setup();
+    api.run('LINE', { points: [[-100, 0], [1100, 0]] });
+    api.run('LINE', { points: [[1000, -100], [1000, 1100]] });
+    api.run('LINE', { points: [[1100, 1000], [-100, 1000]] });
+    api.run('LINE', { points: [[0, 1100], [0, -100]] });
+    api.run('CIRCLE', { center: [500, 500], radius: 100 });
+    const h = first(api.run('HATCH', { pick: [200, 200], pattern: 'LINE45', scale: 10 }));
+    const e = doc.get(h)!;
+    expect(e.type).toBe('HATCH');
+    if (e.type === 'HATCH') {
+      expect(e.loops.length).toBe(2);
+      const xs = e.loops[0].map((p) => p[0]);
+      expect(Math.min(...xs)).toBeCloseTo(0);
+      expect(Math.max(...xs)).toBeCloseTo(1000);
+    }
+    expect(api.query.describe(h)).toMatch(/diện tích 96/);
+  });
+  it('bấm ở ngoài mọi vùng kín → báo lỗi', () => {
+    const { api } = setup();
+    api.run('RECTANG', { p1: [0, 0], p2: [10, 10] });
+    expect(() => api.run('HATCH', { pick: [50, 50] })).toThrow(/vùng kín/);
+  });
+  it('HATCH theo đối tượng kín, HATCHEDIT, xoay/dời, BOUNDARY', () => {
+    const { doc, api, first } = setup();
+    const r = first(api.run('RECTANG', { p1: [0, 0], p2: [100, 50] }));
+    const h = first(api.run('HATCH', { ids: [r], pattern: 'SOLID' }));
+    expect(doc.get(h)).toMatchObject({ solid: true });
+    api.run('HATCHEDIT', { ids: [h], pattern: 'CROSS', scale: 5 });
+    expect(doc.get(h)).toMatchObject({ solid: false, pattern: 'CROSS', scale: 5 });
+    api.run('ROTATE', { ids: [h], base: [0, 0], angle: 90 });
+    const e = doc.get(h)!;
+    if (e.type === 'HATCH') expect(e.lines[0].angle).toBeCloseTo(90);
+    api.run('LINE', { points: [[200, 0], [300, 0], [250, 80]], close: true });
+    const b = api.run('BOUNDARY', { pick: [250, 20] });
+    const pl = doc.get((b.ids as number[])[0])!;
+    expect(pl).toMatchObject({ type: 'LWPOLYLINE', closed: true });
+    if (pl.type === 'LWPOLYLINE') expect(pl.pts.length).toBe(3);
+  });
+});

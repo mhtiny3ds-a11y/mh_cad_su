@@ -215,6 +215,61 @@ try {
   await page.mouse.move(box.x + 5, box.y + 5);
   await page.screenshot({ path: `${OUT}v2-drawing.png` });
 
+  // 12. HATCH bằng bấm điểm, mở DWG thật, hiệu năng.
+  await page.evaluate(() => {
+    const m = window.mhcad;
+    m.file.newDrawing();
+    m.run('RECTANG', { p1: [0, 0], p2: [6000, 4000] });
+    m.run('CIRCLE', { center: [3000, 2000], radius: 800 });
+    m.view.zoomExtents();
+  });
+  await page.waitForTimeout(50);
+  await type('H');
+  await type('P', 'BRICK');
+  await click([1000, 1000]);
+  await cmd.press('Enter');
+  const hatch = await page.evaluate(() => window.mhcad.query.entities({ type: 'HATCH' }));
+  check('HATCH bấm điểm có đảo', hatch.length === 1 && hatch[0].loops.length === 2 && hatch[0].pattern === 'BRICK', JSON.stringify(hatch.map((h) => h.loops.length)));
+  await page.mouse.move(box.x + 5, box.y + 5);
+  await page.screenshot({ path: `${OUT}hatch.png` });
+
+  await page.locator('#file').setInputFiles(new URL('../tests/fixtures/example_2018.dwg', import.meta.url).pathname);
+  await page.waitForFunction(() => window.mhcad.query.summary().entityCount > 20, null, { timeout: 30000 });
+  const dwg = await page.evaluate(() => window.mhcad.query.summary());
+  check('Mở DWG 2018 trong trình duyệt (Web Worker + WebAssembly)', dwg.entityCount > 20, `${dwg.entityCount} đối tượng, ${dwg.blocks} block`);
+  await page.waitForTimeout(100);
+  await page.screenshot({ path: `${OUT}dwg.png` });
+
+  const perf = await page.evaluate(() => {
+    const m = window.mhcad;
+    m.file.newDrawing();
+    const t0 = performance.now();
+    m.batch('Nhiều đối tượng', () => {
+      const pts = [];
+      for (let i = 0; i < 200; i++) for (let j = 0; j < 125; j++) {
+        const x = i * 1000;
+        const y = j * 1000;
+        m.run('RECTANG', { p1: [x, y], p2: [x + 800, y + 600] });
+        if ((i + j) % 2) m.run('CIRCLE', { center: [x + 400, y + 300], radius: 200 });
+      }
+    });
+    const build = performance.now() - t0;
+    m.view.zoomExtents();
+    const times = [];
+    for (let k = 0; k < 5; k++) times.push(m.view.redrawNow());
+    return { n: m.query.summary().entityCount, build: Math.round(build), render: Math.round(Math.min(...times)) };
+  });
+  check(`Hiệu năng: ${perf.n} đối tượng vẽ trong ${perf.render} ms`, perf.render < 250, JSON.stringify(perf));
+  // Rê chuột trên bản vẽ lớn: đo thời gian xử lý một lần di chuyển.
+  const moveMs = await page.evaluate(async () => {
+    const cv = document.querySelector('#cv');
+    const r = cv.getBoundingClientRect();
+    const t0 = performance.now();
+    for (let i = 0; i < 20; i++) cv.dispatchEvent(new PointerEvent('pointermove', { clientX: r.left + 100 + i * 10, clientY: r.top + 200, bubbles: true }));
+    return (performance.now() - t0) / 20;
+  });
+  check(`Rê chuột trên bản vẽ lớn: ${moveMs.toFixed(1)} ms/lần`, moveMs < 30);
+
   // 10. Giao diện điện thoại.
   const phone = await browser.newPage({ viewport: { width: 390, height: 780 } });
   await phone.goto(BASE);

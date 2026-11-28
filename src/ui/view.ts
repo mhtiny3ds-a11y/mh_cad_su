@@ -5,6 +5,7 @@ import type { BBox, Vec } from '../core/geom';
 import { deg2rad } from '../core/geom';
 import type { Drawing } from '../core/document';
 import { type Entity, type NewEntity, type SnapKind, bbox, expand, gripPoints } from '../core/entities';
+import { hatchSegments } from '../core/hatch';
 
 export class Viewport {
   /** Số pixel (CSS) trên một đơn vị bản vẽ. */
@@ -66,8 +67,13 @@ const ACI_BASE: Record<number, string> = {
 };
 
 /** Đổi mã màu ACI sang CSS. Màu 7 đổi theo nền (trắng trên nền tối, đen trên nền sáng). */
+// Trên nền sáng, các màu quá sáng (vàng, lục lam, xanh lá) được làm đậm hơn để dễ đọc.
+const ACI_ON_LIGHT: Record<number, string> = { 2: '#b8a000', 3: '#00a020', 4: '#0097a7', 6: '#c000c0' };
+
 export function aciToCss(i: number, fg: string): string {
   if (i === 7 || i <= 0 || i > 255) return fg;
+  const lightBg = /^#[0-3]/.test(fg);
+  if (lightBg && ACI_ON_LIGHT[i]) return ACI_ON_LIGHT[i];
   if (ACI_BASE[i]) return ACI_BASE[i];
   if (i >= 250) {
     const v = Math.round(51 + ((i - 250) * (255 - 51)) / 5);
@@ -112,6 +118,8 @@ export interface RenderState {
   /** Hiện điểm nắm (grip) của đối tượng đang chọn. */
   grips: boolean;
   hotGrip: { id: number; i: number } | null;
+  /** Thống kê lần vẽ gần nhất (ghi ra). */
+  stats?: { drawn: number; total: number; collectMs?: number; flushMs?: number; batches?: number };
 }
 
 function niceStep(minWorld: number): number {
@@ -145,38 +153,82 @@ function drawGrid(g: CanvasRenderingContext2D, s: RenderState): void {
   lines(major, theme.gridMajor);
 }
 
-function pathEntity(g: CanvasRenderingContext2D, e: NewEntity | Entity, vp: Viewport): void {
-  g.beginPath();
+/** Gom nét cùng kiểu (màu, nét đứt, độ dày) thành một Path2D để vẽ một lần — nhanh hơn nhiều với bản vẽ lớn. */
+class Batch {
+  strokes = new Map<string, { color: string; dash: number[]; width: number; path: Path2D }>();
+  fills = new Map<string, Path2D>();
+  texts: { e: NewEntity & { type: 'TEXT' }; color: string }[] = [];
+
+  stroke(color: string, dash: number[], width: number): Path2D {
+    const k = `${color}|${dash.join(',')}|${width}`;
+    let v = this.strokes.get(k);
+    if (!v) this.strokes.set(k, (v = { color, dash, width, path: new Path2D() }));
+    return v.path;
+  }
+
+  fill(color: string): Path2D {
+    let p = this.fills.get(color);
+    if (!p) this.fills.set(color, (p = new Path2D()));
+    return p;
+  }
+
+  flush(g: CanvasRenderingContext2D, vp: Viewport): void {
+    for (const [color, path] of this.fills) {
+      g.fillStyle = color;
+      g.fill(path, 'evenodd');
+    }
+    for (const v of this.strokes.values()) {
+      g.strokeStyle = v.color;
+      g.lineWidth = v.width;
+      g.setLineDash(v.dash);
+      g.stroke(v.path);
+    }
+    g.setLineDash([]);
+    for (const t of this.texts) drawText(g, t.e, vp, t.color);
+    this.strokes.clear();
+    this.fills.clear();
+    this.texts = [];
+  }
+}
+
+function addPath(p: Path2D, e: NewEntity | Entity, vp: Viewport): void {
   switch (e.type) {
     case 'LINE': {
       const a = vp.toScreen(e.a);
       const b = vp.toScreen(e.b);
-      g.moveTo(a[0], a[1]);
-      g.lineTo(b[0], b[1]);
+      p.moveTo(a[0], a[1]);
+      p.lineTo(b[0], b[1]);
       break;
     }
     case 'CIRCLE': {
       const c = vp.toScreen(e.c);
-      g.arc(c[0], c[1], Math.max(e.r * vp.scale, 0.5), 0, Math.PI * 2);
+      const r = Math.max(e.r * vp.scale, 0.5);
+      p.moveTo(c[0] + r, c[1]);
+      p.arc(c[0], c[1], r, 0, Math.PI * 2);
       break;
     }
     case 'ARC': {
       const c = vp.toScreen(e.c);
+      const r = Math.max(e.r * vp.scale, 0.5);
       // Màn hình lật trục Y → góc âm và vẽ theo chiều kim đồng hồ.
-      g.arc(c[0], c[1], Math.max(e.r * vp.scale, 0.5), -deg2rad(e.start), -deg2rad(e.end), true);
+      const a0 = -deg2rad(e.start);
+      p.moveTo(c[0] + r * Math.cos(a0), c[1] + r * Math.sin(a0));
+      p.arc(c[0], c[1], r, a0, -deg2rad(e.end), true);
       break;
     }
     case 'LWPOLYLINE': {
-      e.pts.forEach((p, i) => {
-        const q = vp.toScreen(p);
-        if (i === 0) g.moveTo(q[0], q[1]);
-        else g.lineTo(q[0], q[1]);
-      });
-      if (e.closed) g.closePath();
+      const n = e.pts.length;
+      if (!n) break;
+      const q0 = vp.toScreen(e.pts[0]);
+      p.moveTo(q0[0], q0[1]);
+      for (let i = 1; i < n; i++) {
+        const q = vp.toScreen(e.pts[i]);
+        p.lineTo(q[0], q[1]);
+      }
+      // Không dùng closePath(): với Path2D lớn trong Chromium, closePath làm việc dựng đường chậm đi rất nhiều.
+      if (e.closed) p.lineTo(q0[0], q0[1]);
       break;
     }
-    case 'TEXT':
-      break;
   }
 }
 
@@ -186,6 +238,7 @@ function drawText(g: CanvasRenderingContext2D, e: NewEntity & { type: 'TEXT' }, 
   if (px < 1.5) {
     // Chữ quá nhỏ: vẽ một vạch thay thế cho nhẹ.
     g.strokeStyle = color;
+    g.lineWidth = 1;
     g.beginPath();
     const w = Math.max(1, e.text.length * px * 0.6);
     const x0 = e.ha === 'C' ? p[0] - w / 2 : e.ha === 'R' ? p[0] - w : p[0];
@@ -214,40 +267,75 @@ function dashFor(pattern: number[], ltscale: number, scale: number): number[] {
   return pattern.map((x, i) => (x === 0 ? 1 : Math.max(px[i], 1)));
 }
 
-function drawOne(g: CanvasRenderingContext2D, e: NewEntity | Entity, vp: Viewport, color: string, dash: number[] = []): void {
-  if (e.type === 'TEXT') return drawText(g, e, vp, color);
-  if (e.type === 'LWPOLYLINE' && e.fill) {
-    pathEntity(g, e, vp);
-    g.fillStyle = color;
-    g.fill();
-    return;
-  }
-  g.strokeStyle = color;
-  if (dash.length) g.setLineDash(dash);
-  pathEntity(g, e, vp);
-  g.stroke();
-  if (dash.length) g.setLineDash([]);
+// Đoạn nét mẫu của HATCH (lưu đệm theo đối tượng; null = quá dày để vẽ từng nét).
+const hatchCache = new WeakMap<object, [Vec, Vec][] | null>();
+function hatchSegs(e: NewEntity & { type: 'HATCH' }): [Vec, Vec][] | null {
+  if (hatchCache.has(e)) return hatchCache.get(e)!;
+  const segs = hatchSegments(e.loops, e.lines, 3000);
+  hatchCache.set(e, segs);
+  return segs;
 }
 
-/** Vẽ một đối tượng bất kỳ (block, kích thước được phân rã), màu theo đối tượng/layer. */
-function drawEntity(
-  g: CanvasRenderingContext2D,
-  e: NewEntity | Entity,
-  s: RenderState,
-  override: string | null,
-): void {
+/** Đưa một đối tượng (block, kích thước được phân rã) vào lô vẽ, màu theo đối tượng/layer. */
+function queueEntity(b: Batch, e: NewEntity | Entity, s: RenderState, override: string | null, width: number): void {
   const { doc, vp, theme } = s;
   if (e.type === 'INSERT' || e.type === 'DIMENSION') {
     for (const x of expand(e)) {
       if (doc.layers.get(x.layer)?.visible === false) continue;
-      drawEntity(g, x, s, override);
+      queueEntity(b, x, s, override, width);
     }
     return;
   }
   const layer = doc.layers.get(e.layer);
   const color = override ?? aciToCss(e.color ?? layer?.color ?? 7, theme.fg);
+  switch (e.type) {
+    case 'TEXT':
+      b.texts.push({ e, color });
+      return;
+    case 'POINT': {
+      const q = vp.toScreen(e.p);
+      b.fill(color).rect(q[0] - 1.5, q[1] - 1.5, 3, 3);
+      return;
+    }
+    case 'HATCH': {
+      if (e.solid) {
+        const p = b.fill(override ? hexAlpha(color, 0.45) : color);
+        for (const l of e.loops) addPath(p, { type: 'LWPOLYLINE', pts: l, closed: true, layer: '' }, vp);
+        return;
+      }
+      // Nét mẫu quá dày so với màn hình → tô mờ thay cho từng nét.
+      const spacingPx = Math.min(...e.lines.map((l) => Math.abs(l.offset[0] * -Math.sin(deg2rad(l.angle)) + l.offset[1] * Math.cos(deg2rad(l.angle))))) * vp.scale;
+      const segs = spacingPx >= 2 ? hatchSegs(e) : null;
+      if (!segs) {
+        const p = b.fill(hexAlpha(color, 0.25));
+        for (const l of e.loops) addPath(p, { type: 'LWPOLYLINE', pts: l, closed: true, layer: '' }, vp);
+        return;
+      }
+      const p = b.stroke(color, override ? [6, 4] : [], 1);
+      for (const [a, c] of segs) {
+        const q1 = vp.toScreen(a);
+        const q2 = vp.toScreen(c);
+        p.moveTo(q1[0], q1[1]);
+        p.lineTo(q2[0], q2[1]);
+      }
+      return;
+    }
+    case 'LWPOLYLINE':
+      if (e.fill) {
+        addPath(b.fill(color), e, vp);
+        return;
+      }
+  }
   const dash = override ? [6, 4] : dashFor(doc.linePattern(e), doc.ltscale, vp.scale);
-  drawOne(g, e, vp, color, dash);
+  addPath(b.stroke(color, dash, width), e, vp);
+}
+
+function hexAlpha(color: string, a: number): string {
+  if (color.startsWith('#') && color.length === 7) {
+    const n = parseInt(color.slice(1), 16);
+    return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+  }
+  return color;
 }
 
 function drawSnapMarker(g: CanvasRenderingContext2D, p: Vec, kind: SnapKind, color: string): void {
@@ -353,13 +441,25 @@ export function render(g: CanvasRenderingContext2D, s: RenderState): void {
 
   const view = vp.worldBox();
   const pad = 2 / vp.scale;
+  const batch = new Batch();
+  let drawn = 0;
+  const tc = performance.now();
   for (const e of doc.visible()) {
     const b = bbox(e);
     if (b.maxX < view.minX - pad || b.minX > view.maxX + pad || b.maxY < view.minY - pad || b.minY > view.maxY + pad) continue;
+    drawn++;
+    // Đối tượng quá nhỏ trên màn hình (< 1 px) vẽ thành một chấm.
+    if ((b.maxX - b.minX) * vp.scale < 1 && (b.maxY - b.minY) * vp.scale < 1 && e.type !== 'TEXT') {
+      const q = vp.toScreen([b.minX, b.minY]);
+      batch.fill(aciToCss(e.color ?? doc.layers.get(e.layer)?.color ?? 7, theme.fg)).rect(q[0], q[1] - 1, 1, 1);
+      continue;
+    }
     const sel = s.selection.has(e.id);
-    g.lineWidth = s.hover === e.id ? 2.5 : 1;
-    drawEntity(g, e, s, sel ? theme.select : null);
+    queueEntity(batch, e, s, sel ? theme.select : null, s.hover === e.id ? 2.5 : 1);
   }
+  const tf = performance.now();
+  batch.flush(g, vp);
+  s.stats = { drawn, total: doc.entities.size, collectMs: tf - tc, flushMs: performance.now() - tf, batches: 0 };
 
   if (s.grips && s.selection.size && s.selection.size <= 200) {
     g.lineWidth = 1;
@@ -378,9 +478,8 @@ export function render(g: CanvasRenderingContext2D, s: RenderState): void {
   }
 
   if (s.preview.length) {
-    g.lineWidth = 1;
-    for (const e of s.preview) drawEntity(g, e, s, theme.preview);
-    g.setLineDash([]);
+    for (const e of s.preview) queueEntity(batch, e, s, theme.preview, 1);
+    batch.flush(g, vp);
   }
 
   if (s.box) {

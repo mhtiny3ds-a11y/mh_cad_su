@@ -465,3 +465,16 @@ dialog::backdrop {
     display: none;
   }
 }
+.stage.drop::after {
+  content: 'Thả file DXF / DWG vào đây';
+  position: absolute;
+  inset: 12px;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+  font-size: 16px;
+  pointer-events: none;
+}

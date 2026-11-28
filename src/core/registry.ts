@@ -3,7 +3,8 @@
 import { BUILTIN, Registry } from './commands';
 import { MODIFY_COMMANDS } from './cmds/modify';
 import { ANNOTATE_COMMANDS } from './cmds/annotate';
+import { HATCH_COMMANDS } from './cmds/hatch';
 
 export function createRegistry(): Registry {
-  return new Registry([...BUILTIN, ...MODIFY_COMMANDS, ...ANNOTATE_COMMANDS]);
+  return new Registry([...BUILTIN, ...MODIFY_COMMANDS, ...ANNOTATE_COMMANDS, ...HATCH_COMMANDS]);
 }

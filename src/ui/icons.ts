@@ -36,6 +36,7 @@ export const ICONS: Record<string, string> = {
   INSERT: svg('<rect x="3" y="8" width="9" height="9" rx="1"/><path d="M12 3h5v5M17 3l-6 6"/>'),
   MATCHPROP: svg('<path d="M4 16l6-6M10 10l4-4 2 2-4 4z"/><path d="M3 17l2-2"/>'),
   AREA: svg('<path d="M3 15l4-11 10 3-3 9z" fill="currentColor" fill-opacity=".18"/>'),
+  HATCH: svg('<rect x="3" y="3" width="14" height="14"/><path d="M3 9l6-6M3 15l12-12M7 17l10-10M13 17l4-4"/>'),
   plot: svg('<path d="M6 7V3h8v4"/><rect x="3" y="7" width="14" height="7" rx="1"/><path d="M6 12h8v5H6z"/>'),
   svg: svg('<path d="M5 2h7l4 4v12H5z"/><path d="M8 12l2 2 2-2M10 9v5"/>'),
   layers: svg('<path d="M10 3 2 7l8 4 8-4z"/><path d="M2 11l8 4 8-4"/><path d="M2 14.5l8 4 8-4" opacity=".6"/>'),

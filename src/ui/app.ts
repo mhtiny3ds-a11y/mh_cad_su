@@ -16,6 +16,8 @@ import { parseInput } from '../core/input';
 import { type MhcadApi, createApi } from '../core/api';
 import { decodeDxfBytes, readDxf, writeDxf } from '../core/dxf';
 import { createRegistry } from '../core/registry';
+import { GridIndex } from '../core/spatial';
+import { isDwg } from '../core/dwg';
 import { PAPERS, plotSvg } from '../core/svg';
 import { type Theme, Viewport, aciToCss, render } from './view';
 import { ICONS, LOGO } from './icons';
@@ -87,7 +89,7 @@ const TOOLS = [
   'LINE', 'PLINE', 'RECTANG', 'POLYGON', 'CIRCLE', 'ARC', 'TEXT', '|',
   'MOVE', 'COPY', 'ROTATE', 'SCALE', 'MIRROR', 'OFFSET', 'TRIM', 'EXTEND', 'FILLET', 'CHAMFER', 'BREAK', 'JOIN', 'EXPLODE', 'ERASE', '|',
   'DIMLINEAR', 'DIMALIGNED', 'DIMRADIUS', 'DIMANGULAR', 'DIMCONTINUE', '|',
-  'BLOCK', 'INSERT', 'MATCHPROP', '|', 'DIST', 'AREA', 'LIST',
+  'HATCH', 'BLOCK', 'INSERT', 'MATCHPROP', '|', 'DIST', 'AREA', 'LIST',
 ];
 
 const TOOL_LABEL: Record<string, string> = {
@@ -122,6 +124,7 @@ const TOOL_LABEL: Record<string, string> = {
   INSERT: 'Chèn block (I)',
   MATCHPROP: 'Sao chép thuộc tính (MA)',
   AREA: 'Diện tích (AA)',
+  HATCH: 'Tô vật liệu (H)',
   LIST: 'Thông tin đối tượng (LI)',
 };
 
@@ -153,6 +156,10 @@ export class App {
   private touches = new Map<number, Vec>();
   private pinch: { d: number; mid: Vec } | null = null;
   private hotGrip: { id: number; i: number } | null = null;
+  private index: GridIndex | null = null;
+  private lastRenderMs = 0;
+  private lastStats: Record<string, number> = { drawn: 0, total: 0 };
+  private dwgWorker: Worker | null = null;
   private spaceDown = false;
   private pending: Pending | null = null;
   private running: Promise<void> | null = null;
@@ -192,6 +199,11 @@ export class App {
         zoomExtents: () => this.zoomExtents(),
         zoomWindow: (a, b) => this.zoomWindow(a, b),
         snapshot: () => this.snapshot(),
+        renderStats: () => ({ ms: this.lastRenderMs, ...this.lastStats }),
+        redrawNow: () => {
+          this.draw();
+          return this.lastRenderMs;
+        },
         toClient: (p) => {
           const r = this.canvas.getBoundingClientRect();
           const q = this.vp.toScreen(p);
@@ -213,7 +225,7 @@ export class App {
         <div class="brand">${LOGO}<span>MHCAD</span><small>v${VERSION}</small></div>
         <div class="actions">
           <button data-act="new" title="Bản vẽ mới">${ICONS.new}</button>
-          <button data-act="open" title="Mở file DXF">${ICONS.open}</button>
+          <button data-act="open" title="Mở file DXF / DWG (hoặc kéo-thả vào vùng vẽ)">${ICONS.open}</button>
           <button data-act="save" title="Lưu ra file DXF (Ctrl+S)">${ICONS.save}</button>
           <span class="sep"></span>
           <button data-act="undo" title="Hoàn tác (Ctrl+Z)">${ICONS.undo}</button>
@@ -250,7 +262,7 @@ export class App {
         </span>
         <span class="units" id="units">mm</span>
       </footer>
-      <input type="file" id="file" accept=".dxf,.DXF" hidden />
+      <input type="file" id="file" accept=".dxf,.DXF,.dwg,.DWG" hidden />
       <dialog id="help"></dialog>
       <dialog id="layers"></dialog>
       <dialog id="plot"></dialog>
@@ -273,6 +285,7 @@ export class App {
     this.resize();
 
     this.doc.onChange(() => {
+      this.index = null;
       this.refreshLayers();
       this.redraw();
       clearTimeout(this.saveTimer);
@@ -322,11 +335,55 @@ export class App {
       const f = this.fileInput.files?.[0];
       this.fileInput.value = '';
       if (!f) return;
+      await this.openFile(f);
+    });
+    // Kéo-thả file DXF/DWG vào vùng vẽ.
+    const stage = this.root.querySelector<HTMLElement>('.stage')!;
+    stage.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      stage.classList.add('drop');
+    });
+    stage.addEventListener('dragleave', () => stage.classList.remove('drop'));
+    stage.addEventListener('drop', (e) => {
+      e.preventDefault();
+      stage.classList.remove('drop');
+      const f = e.dataTransfer?.files?.[0];
+      if (f) void this.openFile(f);
+    });
+  }
+
+  /** Chuyển DWG → DXF trong Web Worker (LibreDWG WebAssembly, nạp khi cần). */
+  private dwgToDxf(bytes: Uint8Array): Promise<string> {
+    if (!this.dwgWorker) this.dwgWorker = new Worker(new URL('./dwg-worker.ts', import.meta.url), { type: 'module' });
+    const w = this.dwgWorker;
+    const id = Math.random();
+    return new Promise((resolve, reject) => {
+      const onMsg = (ev: MessageEvent<{ id: number; dxf?: string; error?: string }>) => {
+        if (ev.data.id !== id) return;
+        w.removeEventListener('message', onMsg);
+        if (ev.data.error) reject(new Error(ev.data.error));
+        else resolve(ev.data.dxf!);
+      };
+      w.addEventListener('message', onMsg);
+      w.addEventListener('error', (e) => reject(new Error(e.message || 'Lỗi khi nạp bộ đọc DWG')), { once: true });
+      w.postMessage({ id, bytes }, [bytes.buffer]);
+    });
+  }
+
+  private async openFile(f: File): Promise<void> {
+    {
       try {
-        const text = decodeDxfBytes(await f.arrayBuffer());
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        let text: string;
+        if (isDwg(bytes)) {
+          this.print(`Đang đọc DWG ${f.name}… (lần đầu cần tải bộ đọc khoảng 8 MB)`);
+          const t0 = performance.now();
+          text = await this.dwgToDxf(bytes);
+          this.print(`Đã chuyển DWG trong ${Math.round(performance.now() - t0)} ms`);
+        } else text = decodeDxfBytes(bytes);
         const r = readDxf(text);
         this.doc.load(r.data);
-        this.fileName = f.name.replace(/\.dxf$/i, '') + '.dxf';
+        this.fileName = f.name.replace(/\.(dxf|dwg)$/i, '') + '.dxf';
         this.selection.clear();
         this.zoomExtents();
         this.print(`Đã mở ${f.name}: ${r.data.entities.length} đối tượng, ${r.data.layers.length} layer.`);
@@ -335,7 +392,7 @@ export class App {
       } catch (e) {
         this.print(`Không mở được file: ${(e as Error).message}`);
       }
-    });
+    }
   }
 
   private action(act: string): void {
@@ -458,7 +515,8 @@ export class App {
       const b = this.pending.tempBase ?? this.pending.base!;
       preview.push({ type: 'LINE', a: b, b: cursorW, layer: '0' });
     }
-    render(this.g, {
+    const t0 = performance.now();
+    const rs = {
       doc: this.doc,
       vp: this.vp,
       theme: THEMES[this.themeName],
@@ -473,7 +531,10 @@ export class App {
       grips: !this.running,
       hotGrip: this.hotGrip,
       pickSize: 5,
-    });
+    } as Parameters<typeof render>[1];
+    render(this.g, rs);
+    this.lastRenderMs = performance.now() - t0;
+    if (rs.stats) this.lastStats = rs.stats;
   }
 
   private snapshot(): string {
@@ -619,9 +680,12 @@ export class App {
     if (!this.cursorScreen) return;
     const w = this.vp.toWorld(this.cursorScreen[0], this.cursorScreen[1]);
     const tol = 6 / this.vp.scale;
-    const near = this.doc
-      .visible()
+    if (!this.index) this.index = new GridIndex(this.doc.visible(), this.doc.extents());
+    const r2 = 12 / this.vp.scale;
+    const near = this.index
+      .query({ minX: w[0] - r2, minY: w[1] - r2, maxX: w[0] + r2, maxY: w[1] + r2 })
       .filter((e) => {
+        if (this.doc.layers.get(e.layer)?.visible === false || this.doc.get(e.id) !== e) return false;
         const b = bbox(e);
         return w[0] >= b.minX - tol * 2 && w[0] <= b.maxX + tol * 2 && w[1] >= b.minY - tol * 2 && w[1] <= b.maxY + tol * 2;
       });

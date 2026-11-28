@@ -109,4 +109,46 @@ describe('DXF', () => {
     expect(skipped).toEqual({ 'INSERT (thiếu block)': 1 });
     expect(stripMtext('\\H2.5;Cao\\Pthấp')).toBe('Cao\nthấp');
   });
+
+  it('đọc HATCH (biên đa tuyến có cung + biên cạnh, mẫu từ file) và POINT', () => {
+    const dxf = [
+      '0', 'SECTION', '2', 'ENTITIES',
+      '0', 'HATCH', '8', 'H', '2', 'ANSI31', '70', '0', '71', '0', '91', '2',
+      '92', '3', '72', '1', '73', '1', '93', '4',
+      '10', '0', '20', '0', '42', '0', '10', '100', '20', '0', '42', '0', '10', '100', '20', '100', '42', '0', '10', '0', '20', '100', '42', '0', '97', '0',
+      '92', '16', '93', '1', '72', '2', '10', '50', '20', '50', '40', '10', '50', '0', '51', '360', '73', '1', '97', '0',
+      '75', '0', '76', '1', '52', '0', '41', '1', '77', '0', '78', '1',
+      '53', '45', '43', '0', '44', '0', '45', '-2.2', '46', '2.2', '79', '0',
+      '98', '0',
+      '0', 'POINT', '8', 'P', '10', '5', '20', '6',
+      '0', 'ENDSEC', '0', 'EOF', '',
+    ].join('\n');
+    const { data, skipped } = readDxf(dxf);
+    expect(skipped).toEqual({});
+    const h = data.entities[0];
+    expect(h.type).toBe('HATCH');
+    if (h.type === 'HATCH') {
+      expect(h.loops.length).toBe(2);
+      expect(h.loops[0].length).toBe(4);
+      expect(h.loops[1].length).toBeGreaterThan(20);
+      expect(h.lines[0]).toMatchObject({ angle: 45, offset: [-2.2, 2.2] });
+    }
+    expect(data.entities[1]).toMatchObject({ type: 'POINT', p: [5, 6] });
+  });
+
+  it('ghi HATCH ra block *X (đặc → hình thang SOLID, mẫu → LINE)', () => {
+    const d = new Drawing();
+    d.transact('t', () => {
+      d.add({ type: 'HATCH', loops: [[[0, 0], [10, 0], [10, 10], [0, 10]]], solid: true, pattern: 'SOLID', scale: 1, angle: 0, lines: [], layer: '0' });
+      d.add({ type: 'HATCH', loops: [[[0, 0], [10, 0], [10, 10], [0, 10]]], solid: false, pattern: 'LINE', scale: 1, angle: 0, lines: [{ angle: 0, base: [0, 0], offset: [0, 2], dashes: [] }], layer: '0' });
+      d.add({ type: 'POINT', p: [1, 2], layer: '0' });
+    });
+    const { data } = readDxf(writeDxf(d.toData()));
+    const x1 = data.blocks!.find((b) => b.name === '*X1')!;
+    const x2 = data.blocks!.find((b) => b.name === '*X2')!;
+    expect(x1.ents.every((e) => e.type === 'LWPOLYLINE' && e.fill)).toBe(true);
+    expect(x2.ents.filter((e) => e.type === 'LINE').length).toBe(5);
+    expect(data.entities.filter((e) => e.type === 'INSERT').length).toBe(2);
+    expect(data.entities.find((e) => e.type === 'POINT')).toMatchObject({ p: [1, 2] });
+  });
 });
