@@ -4,15 +4,20 @@ Phần mềm CAD 2D **miễn phí, mã nguồn mở**, chạy ngay trên trình 
 
 👉 Dùng thử: https://mhtiny3ds-a11y.github.io/mh_cad_su/ (sau khi bật GitHub Pages, xem bên dưới)
 
-## Tính năng (v0.1)
+## Tính năng (v0.2)
 
-- Vẽ: đoạn thẳng, đa tuyến, hình chữ nhật, đường tròn, cung tròn, chữ tiếng Việt
-- Sửa: di chuyển, sao chép, xoay, tỉ lệ, đối xứng, offset, phá đa tuyến, xoá
+- Vẽ: đoạn thẳng, đa tuyến, hình chữ nhật, đa giác đều, đường tròn, cung tròn, chữ tiếng Việt
+- Sửa: di chuyển, sao chép, xoay, tỉ lệ, đối xứng, offset, **cắt (TRIM), kéo dài (EXTEND), bo góc (FILLET), vát góc (CHAMFER), bẻ (BREAK), nối (JOIN)**, phá, xoá; **sửa nhanh bằng grip**
+- **Kích thước**: ngang/đứng, song song, bán kính, đường kính, góc, nối tiếp; chỉnh kiểu kích thước
+- **Block**: tạo, chèn, phá; đọc block từ file DXF
+- **Kiểu đường** (nét đứt, nét trục…) và LTSCALE; **hộp quản lý layer**
+- **In / lưu PDF** theo khổ A4–A0 và tỉ lệ 1:N; xuất SVG
+- Diện tích & chu vi (AREA), đổi thuộc tính (CHPROP, MATCHPROP)
 - Dòng lệnh quen thuộc: gõ `L`, `C`, `REC`, `M`, `CO`, `O`…; toạ độ `x,y`, `@dx,dy`, `@dài<góc`; gõ số để vẽ theo hướng chuột
 - Bắt điểm (đầu mút, trung điểm, tâm, góc phần tư, giao điểm), ORTHO, lưới
 - Chọn bằng bấm, khung trái→phải (nằm trọn) và phải→trái (chạm khung)
 - Layer: tạo, màu, đặt hiện hành, khoá/tắt
-- Mở / lưu **DXF** (mở được bằng các phần mềm CAD phổ biến); chữ tiếng Việt giữ nguyên
+- Mở / lưu **DXF** (mở được bằng các phần mềm CAD phổ biến); đọc được block, kích thước, cung trong đa tuyến, ellipse, spline, bảng mã tiếng Việt cũ; chữ tiếng Việt giữ nguyên
 - Hoàn tác / làm lại không giới hạn (500 bước), tự lưu tạm trong trình duyệt
 - Giao diện sáng/tối, dùng được trên điện thoại, cài như ứng dụng (PWA)
 - **Điều khiển bằng script và trợ lý AI** qua `window.mhcad` (xem dưới)

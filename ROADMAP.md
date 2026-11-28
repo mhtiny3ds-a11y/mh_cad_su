@@ -11,31 +11,41 @@ Nguyên tắc: làm **ít lệnh nhưng chạy chắc**, có kiểm thử. Mỗi
 - DXF R12 đọc/ghi (chữ tiếng Việt mã hoá `\U+`), tự lưu tạm
 - `window.mhcad`: run, batch, query, view.snapshot
 
-## v0.2 — Sửa hình học cốt lõi
+## ✅ v0.2 — Sửa hình học, ghi chú, block, in (xong)
 
-- [ ] TRIM, EXTEND, FILLET (bán kính, 0 = nối góc), CHAMFER, BREAK, JOIN
-- [ ] OFFSET đa tuyến: xử lý tự cắt, cung trong đa tuyến (bulge)
-- [ ] Grip: kéo đầu mút / tâm để sửa nhanh
-- [ ] Bắt điểm: vuông góc (PER), tiếp tuyến (TAN), đường dóng (tracking)
-- [ ] Nhập độ dài theo POLAR (góc 15°/30°/45°)
+- ✅ TRIM, EXTEND, FILLET (bán kính, 0 = nối góc), CHAMFER, BREAK, JOIN (LINE và đa tuyến)
+- ✅ Grip: bấm đối tượng đang chọn rồi kéo đầu mút / tâm / bán kính / đỉnh
+- ✅ Bắt điểm vuông góc (PER)
+- ✅ POLYGON, AREA, CHPROP, MATCHPROP, LAYDEL, đổi tên layer
+- ✅ Kích thước: DIMLINEAR, DIMALIGNED, DIMRADIUS, DIMDIAMETER, DIMANGULAR, DIMCONTINUE, DIMSTYLE
+- ✅ Hộp quản lý layer (hiện, khoá, màu, kiểu đường, đổi tên, xoá); đổi layer đối tượng đang chọn bằng ô layer
+- ✅ Kiểu đường do MHCAD định nghĩa (DASHED, HIDDEN, CENTER, DASHDOT, DOT, PHANTOM) + LTSCALE
+- ✅ BLOCK, INSERT, EXPLODE block/kích thước
+- ✅ DXF: đọc/ghi block, kích thước (kèm block hình vẽ), kiểu đường, căn chữ; đọc cung trong đa tuyến, ELLIPSE,
+  SPLINE, SOLID, LEADER, MINSERT, ATTRIB; bỏ qua paper space; bảng mã ANSI_1258 / UTF-8
+- ✅ In / lưu PDF theo khổ A4–A0, tỉ lệ 1:N hoặc vừa khổ, đen trắng; xuất SVG
+- ✅ Cảm ứng: chụm hai ngón để zoom/di chuyển
 
-## v0.3 — Ghi chú bản vẽ
+## v0.3 — Còn thiếu so với các phần mềm CAD web đầy đủ
 
-- [ ] Kích thước: DIMLINEAR, DIMALIGNED, DIMRADIUS, DIMDIAMETER, DIMANGULAR, DIMCONTINUE; kiểu kích thước
-- [ ] MTEXT nhiều dòng, sửa chữ (DDEDIT), font TTF tiếng Việt
+- [ ] FILLET/CHAMFER cho đa tuyến và cung; TRIM/EXTEND cho đa tuyến tự cắt; OFFSET có cung
+- [ ] Đa tuyến có cung (bulge) giữ nguyên khi sửa (hiện nhập vào được chia thành đoạn thẳng)
+- [ ] Bắt điểm tiếp tuyến (TAN), đường dóng (tracking), POLAR 15°/30°/45°
+- [ ] HATCH (mẫu tự soạn) + đọc HATCH từ DXF
+- [ ] MTEXT nhiều dòng thật sự, sửa chữ tại chỗ (DDEDIT), tìm & thay chữ
 - [ ] Chuyển mã TCVN3 / VNI → Unicode khi mở file cũ
-- [ ] HATCH (mẫu tự soạn, không dùng file mẫu của hãng khác)
-- [ ] Bảng layer đầy đủ (bật/tắt, khoá, màu, kiểu đường, đổi tên, xoá)
-- [ ] Kiểu đường (nét đứt, nét chấm gạch), độ dày nét
+- [ ] Bảng thuộc tính (Properties) cho đối tượng đang chọn
+- [ ] Kích thước đọc từ DXF giữ được giá trị đo (hiện hiển thị qua block hình vẽ gốc)
+- [ ] STRETCH, ARRAY (chữ nhật, tròn, theo đường), ELLIPSE, SPLINE, XLINE, POINT, DONUT, REVCLOUD
+- [ ] Layout / paper space, viewport, khung tên
 
-## v0.4 — Block & file
+## v0.4 — File & hiệu năng
 
-- [ ] BLOCK, INSERT, WBLOCK, thuộc tính (ATTDEF)
-- [ ] Đọc DXF đầy đủ hơn: INSERT, DIMENSION, HATCH, SPLINE, ELLIPSE; giữ lại dữ liệu chưa hiểu khi ghi lại
-- [ ] Ghi DXF R2000+ (LWPOLYLINE, handle)
 - [ ] Đọc DWG bằng LibreDWG (WebAssembly, GPL-3.0) trong Web Worker
-- [ ] In / xuất PDF theo tỉ lệ, khổ giấy A4–A0, khung tên
+- [ ] Ghi DXF R2000+ (LWPOLYLINE, handle), giữ lại dữ liệu chưa hiểu khi ghi lại
+- [ ] Chỉ mục không gian + bộ nhớ đệm hình vẽ block cho bản vẽ lớn
 - [ ] Bảng alias tự sửa; nạp file `.pgp` của người dùng
+- [ ] WBLOCK, thư viện block dùng chung
 
 ## v0.5 — Trợ lý AI điều khiển MHCAD
 

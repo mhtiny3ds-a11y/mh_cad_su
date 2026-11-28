@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { Drawing } from '../src/core/document';
-import { type Ctx, Registry, runCommand } from '../src/core/commands';
+import { type Ctx, runCommand } from '../src/core/commands';
+import { createRegistry } from '../src/core/registry';
 import { createApi } from '../src/core/api';
 import { intersections, snapPoints } from '../src/core/entities';
 
 function setup() {
   const doc = new Drawing();
-  const reg = new Registry();
+  const reg = createRegistry();
   const selection = new Set<number>();
   const ctx: Ctx = { doc, selection, print: () => {} };
   const api = createApi({ doc, reg, ctx: () => ctx, version: 'test', setSelection: (ids) => { selection.clear(); ids.forEach((i) => selection.add(i)); } });

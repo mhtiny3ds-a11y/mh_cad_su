@@ -30,6 +30,8 @@ export interface MhcadApi {
     entity(id: number): Entity | null;
     layers(): { name: string; color: number; visible: boolean; locked: boolean; current: boolean; count: number }[];
     selection(): number[];
+    /** Danh sách block: tên, điểm gốc, số đối tượng. */
+    blocks(): { name: string; base: [number, number]; count: number }[];
     /** Tóm tắt bản vẽ: đơn vị, layer, số đối tượng theo loại, phạm vi. */
     summary(): Record<string, unknown>;
     describe(id: number): string;
@@ -49,6 +51,8 @@ export interface ViewHandle {
   zoomWindow(p1: [number, number], p2: [number, number]): void;
   /** Ảnh PNG (data URL) của khung nhìn hiện tại — để AI "nhìn" kết quả. */
   snapshot(): string;
+  /** Toạ độ bản vẽ → toạ độ pixel trong trang (clientX, clientY). */
+  toClient(p: [number, number]): [number, number];
 }
 
 export interface ApiHost {
@@ -114,6 +118,7 @@ export function createApi(h: ApiHost): MhcadApi {
         return [...doc.layers.values()].map((l) => ({ ...l, current: l.name === doc.currentLayer, count: counts.get(l.name) ?? 0 }));
       },
       selection: () => [...h.ctx().selection],
+      blocks: () => [...doc.blocks.values()].map((b) => ({ name: b.name, base: [b.base[0], b.base[1]] as [number, number], count: b.ents.length })),
       summary() {
         const byType: Record<string, number> = {};
         for (const e of doc.all()) byType[e.type] = (byType[e.type] ?? 0) + 1;
@@ -122,6 +127,9 @@ export function createApi(h: ApiHost): MhcadApi {
           units: doc.units,
           currentLayer: doc.currentLayer,
           layers: [...doc.layers.keys()],
+          blocks: doc.blocks.size,
+          ltscale: doc.ltscale,
+          dimStyle: doc.dimStyle,
           entityCount: doc.entities.size,
           byType,
           extents: ext && [
