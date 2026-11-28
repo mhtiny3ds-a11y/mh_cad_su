@@ -3,7 +3,7 @@
 import type { BBox } from './geom';
 import { deg2rad, polar } from './geom';
 import type { Drawing } from './document';
-import { type NewEntity, expand } from './entities';
+import { type NewEntity, expand, textLineOrigins, xlineSeg } from './entities';
 import { hatchSegments } from './hatch';
 
 export const PAPERS: Record<string, [number, number]> = {
@@ -78,6 +78,12 @@ export function plotSvg(doc: Drawing, o: PlotOptions): PlotResult {
     const col = colorOf(e);
     const st = `fill="none" stroke="${col}" stroke-width="${f(stroke)}"${dashOf(e)}`;
     switch (e.type) {
+      case 'XLINE': {
+        const far = Math.hypot(e.p[0] - cx, e.p[1] - cy) + Math.hypot(vw, vh);
+        const [a, b] = xlineSeg(e, far);
+        out.push(`<line x1="${f(a[0])}" y1="${f(a[1])}" x2="${f(b[0])}" y2="${f(b[1])}" ${st}/>`);
+        break;
+      }
       case 'LINE':
         out.push(`<line x1="${f(e.a[0])}" y1="${f(e.a[1])}" x2="${f(e.b[0])}" y2="${f(e.b[1])}" ${st}/>`);
         break;
@@ -109,6 +115,10 @@ export function plotSvg(doc: Drawing, o: PlotOptions): PlotResult {
         break;
       }
       case 'TEXT': {
+        if (e.text.includes('\n')) {
+          for (const l of textLineOrigins(e)) emit({ ...e, text: l.text, p: l.p, va: 'B' });
+          break;
+        }
         const anchor = e.ha === 'C' ? 'middle' : e.ha === 'R' ? 'end' : 'start';
         const dy = e.va === 'M' ? e.h / 2 : e.va === 'T' ? e.h : 0;
         out.push(

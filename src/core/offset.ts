@@ -51,6 +51,11 @@ export function offsetEntity(e: Entity, d: number, side: Vec): NewEntity | null 
       const n = mul(leftNormal(e.a, e.b), d * sideOf(side, e.a, e.b));
       return out({ a: add(e.a, n), b: add(e.b, n) });
     }
+    case 'XLINE': {
+      const b = add(e.p, e.dir);
+      const n = mul(leftNormal(e.p, b), d * sideOf(side, e.p, b));
+      return out({ p: add(e.p, n) });
+    }
     case 'CIRCLE':
     case 'ARC': {
       const r = dist(side, e.c) > e.r ? e.r + d : e.r - d;

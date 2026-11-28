@@ -5,7 +5,7 @@
 // Chữ không phải ASCII ghi bằng mã \U+XXXX (chuẩn DXF) nên tiếng Việt không bị lỗi.
 
 import { type Vec, add, deg2rad, dist, mul, polar, sub } from './geom';
-import { type BlockDef, type DimEnt, type NewEntity, expand } from './entities';
+import { type BlockDef, type DimEnt, type NewEntity, bbox, expand, textLineOrigins, xlineSeg } from './entities';
 import { type PatLine, hatchSegments, trapezoids } from './hatch';
 import { offsetPolyline } from './offset';
 import type { DrawingData, Layer } from './document';
@@ -164,6 +164,14 @@ export function writeDxf(data: DrawingData): string {
   g(0, 'ENDTAB');
   g(0, 'ENDSEC');
 
+  // Độ dài thay cho đường dựng vô hạn khi ghi R12.
+  let farLen = 1e4;
+  for (const e of data.entities) {
+    if (e.type === 'XLINE') continue;
+    const b = bbox(e);
+    if (Number.isFinite(b.minX)) farLen = Math.max(farLen, Math.abs(b.minX), Math.abs(b.maxX), Math.abs(b.minY), Math.abs(b.maxY));
+  }
+  farLen *= 4;
   const writeEnt = (e: NewEntity) => {
     const head = (type: string) => {
       g(0, type);
@@ -213,7 +221,19 @@ export function writeDxf(data: DrawingData): string {
         g(0, 'SEQEND');
         g(8, encodeDxfText(e.layer));
         break;
+      case 'XLINE': {
+        // R12 không có XLINE/RAY → ghi đoạn thẳng đủ dài so với bản vẽ.
+        const [a, b] = xlineSeg(e, farLen);
+        head('LINE');
+        pt(10, a);
+        pt(11, b);
+        break;
+      }
       case 'TEXT':
+        if (e.text.includes('\n')) {
+          for (const l of textLineOrigins(e)) writeEnt({ ...e, text: l.text, p: l.p, va: 'B' });
+          break;
+        }
         head('TEXT');
         pt(10, e.p);
         g(40, e.h);
@@ -581,6 +601,14 @@ export function readDxf(text: string): DxfReadResult {
       case 'POINT':
         out.push({ type: 'POINT', p: vec(r, 10), ...cm });
         return;
+      case 'XLINE':
+      case 'RAY': {
+        const d = vec(r, 11);
+        const L = Math.hypot(d[0], d[1]);
+        if (L < 1e-12) return void skip(type);
+        out.push({ type: 'XLINE', p: vec(r, 10), dir: [d[0] / L, d[1] / L], ...(type === 'RAY' ? { ray: true } : {}), ...cm });
+        return;
+      }
       case 'ACAD_TABLE':
       case 'ARC_DIMENSION':
       case 'LARGE_RADIAL_DIMENSION': {

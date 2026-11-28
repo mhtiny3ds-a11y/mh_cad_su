@@ -18,6 +18,7 @@ const TYPE_NAME: Record<string, string> = {
   INSERT: 'Block',
   HATCH: 'Vùng tô',
   POINT: 'Điểm',
+  XLINE: 'Đường dựng',
 };
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -93,6 +94,12 @@ function fieldsOf(e: Entity): Field[] {
       ];
     case 'POINT':
       return pt('p', 'Vị trí', e.p);
+    case 'XLINE':
+      return [
+        ...pt('p', 'Điểm gốc', e.p),
+        { key: '', label: 'Góc', value: `${r3((rad2deg(angleOf(e.dir)) + 360) % 360)}°`, kind: 'ro' },
+        { key: '', label: 'Loại', value: e.ray ? 'Tia (RAY)' : 'Đường dựng (XLINE)', kind: 'ro' },
+      ];
   }
 }
 

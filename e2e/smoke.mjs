@@ -240,6 +240,17 @@ try {
   await page.waitForTimeout(100);
   await page.screenshot({ path: `${OUT}dwg.png` });
 
+  // Mở file khi bản vẽ hiện tại đã có nội dung → tab mới; chuyển tab giữ nguyên bản vẽ cũ.
+  check('Mở file vào tab mới', (await page.locator('.tab').count()) === 2);
+  await page.locator('.tab[data-tab="0"]').click();
+  const back = await page.evaluate(() => window.mhcad.query.entities().map((e) => e.type).sort().join(','));
+  check('Chuyển về tab cũ còn nguyên bản vẽ', back === 'CIRCLE,HATCH,LWPOLYLINE', back);
+  await type('u');
+  check('Hoàn tác vẫn hoạt động sau khi đổi tab', (await count()) === 2);
+  await page.locator('.tab[data-tab="1"]').click();
+  check('Quay lại tab DWG', (await count()) === dwg.entityCount);
+  await page.screenshot({ path: `${OUT}tabs.png` });
+
   const perf = await page.evaluate(() => {
     const m = window.mhcad;
     m.file.newDrawing();
@@ -335,6 +346,37 @@ try {
   await page.locator('#inline').press('Enter');
   const txt = await page.evaluate(() => window.mhcad.query.entities({ type: 'TEXT' })[0].text);
   check('Sửa chữ tại chỗ', txt === 'Phòng khách 20m²', txt);
+
+  // Thanh menu → lệnh XLINE; MTEXT qua hộp soạn nhiều dòng.
+  await page.evaluate(() => window.mhcad.file.newDrawing());
+  await page.locator('[data-menu="2"]').click();
+  check('Mở menu Vẽ', await page.locator('#menupop').isVisible());
+  await page.screenshot({ path: `${OUT}menu.png` });
+  await page.locator('#menupop [data-mi="cmd:XLINE"]').click();
+  await type('0,0', '1000,1000');
+  await cmd.press('Enter');
+  const xl = await page.evaluate(() => window.mhcad.query.entities({ type: 'XLINE' }));
+  // Rê chuột lên XLINE ở xa điểm gốc vẫn nhận ra đối tượng (bấm chọn được).
+  await page.evaluate(() => window.mhcad.view.zoomWindow([-6000, -6000], [6000, 6000]));
+  const [xx, xy] = await page.evaluate(() => window.mhcad.view.toClient([5000, 5000]));
+  await page.mouse.move(xx, xy);
+  await page.waitForTimeout(50);
+  await page.mouse.click(xx, xy);
+  const selX = await page.evaluate(() => window.mhcad.query.selection());
+  check('Bấm chọn XLINE xa điểm gốc', selX.length === 1, JSON.stringify(selX));
+  await page.keyboard.press('Escape');
+  check('Vẽ XLINE từ menu', xl.length === 1 && Math.abs(xl[0].dir[0] - Math.SQRT1_2) < 1e-9, JSON.stringify(xl[0]?.dir));
+  await type('MT', '0,0', '3000,-1000');
+  await page.waitForTimeout(50);
+  check('MTEXT mở hộp soạn chữ', await page.locator('#textdlg').isVisible());
+  await page.locator('#textdlg-area').fill('Ghi chú:\nTường gạch 220');
+  await page.locator('#textdlg button[value="ok"]').click();
+  await page.waitForFunction(() => window.mhcad.query.entities({ type: 'TEXT' }).length > 0, null, { timeout: 3000 }).catch(() => {});
+  const mt = await page.evaluate(() => window.mhcad.query.entities({ type: 'TEXT' }).map((e) => e.text));
+  check('MTEXT tạo chữ nhiều dòng', mt.length === 1 && mt[0] === 'Ghi chú:\nTường gạch 220', JSON.stringify(mt));
+  await page.evaluate(() => window.mhcad.view.zoomExtents());
+  await page.mouse.move(box.x + 5, box.y + 5);
+  await page.screenshot({ path: `${OUT}xline-mtext.png` });
 
   // 10. Giao diện điện thoại.
   const phone = await browser.newPage({ viewport: { width: 390, height: 780 } });

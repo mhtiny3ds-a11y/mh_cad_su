@@ -224,6 +224,7 @@ export function stretchEnt(e: Entity, box: BBox, d: Vec): Entity | null {
     case 'TEXT':
     case 'INSERT':
     case 'POINT':
+    case 'XLINE':
       return inBox(e.p, box) ? moveEnt(e, d) : null;
     case 'CIRCLE':
       return inBox(e.c, box) ? moveEnt(e, d) : null;
