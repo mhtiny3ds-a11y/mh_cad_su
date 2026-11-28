@@ -347,8 +347,32 @@ dialog::backdrop {
     margin: auto 4px;
   }
   .topbar {
-    gap: 6px;
+    gap: 4px;
     padding: 4px 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .topbar::-webkit-scrollbar {
+    display: none;
+  }
+  .topbar .sep,
+  .topbar [data-act='svg'],
+  .topbar [data-act='redo'] {
+    display: none;
+  }
+  .actions,
+  .brand {
+    flex: none;
+  }
+  .actions.right {
+    margin-left: 0;
+  }
+  .actions button {
+    width: 30px;
+    flex: none;
+  }
+  .layer {
+    flex: none;
   }
   .brand span,
   .brand small {
