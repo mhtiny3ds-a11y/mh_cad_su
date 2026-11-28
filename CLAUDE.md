@@ -15,7 +15,7 @@ thông báo giao diện đều bằng **tiếng Việt**; tên lệnh CAD giữ 
 ```
 src/core/      không phụ thuộc DOM, kiểm thử được bằng Vitest
   geom.ts        hình học 2D thuần (Vec = readonly [x, y])
-  entities.ts    LINE, CIRCLE, ARC, LWPOLYLINE, TEXT, DIMENSION, INSERT: hộp bao, chọn, bắt điểm, grip, biến đổi;
+  entities.ts    LINE, CIRCLE, ARC, LWPOLYLINE, TEXT (\n = nhiều dòng), DIMENSION, INSERT, HATCH, POINT, XLINE: hộp bao, chọn, bắt điểm, grip, biến đổi;
                  expand() phân rã INSERT/DIMENSION thành đối tượng cơ bản
   dim.ts         hình vẽ và giá trị của kích thước
   curve.ts       đường cong có tham số (TRIM, EXTEND, BREAK)
@@ -25,6 +25,7 @@ src/core/      không phụ thuộc DOM, kiểm thử được bằng Vitest
   cmds/annotate.ts POLYGON, AREA, DIM*, DIMSTYLE, BLOCK, INSERT, LTSCALE
   cmds/hatch.ts  HATCH, HATCHEDIT, BOUNDARY, POINT (dò vùng kín khi bấm điểm)
   cmds/edit.ts   SETPROP, ARRAY, STRETCH, ELLIPSE, MLINE, PASTECLIP
+  cmds/draw.ts   XLINE, RAY, DONUT, REVCLOUD, SPLINE, MTEXT, FIND
   hatch.ts       mẫu tô, cắt nét mẫu theo biên, chia hình thang, findBoundary
   dwg.ts         DWG → DXF bằng LibreDWG WebAssembly (chạy trong src/ui/dwg-worker.ts)
   spatial.ts     chỉ mục lưới cho rê chuột / bắt điểm
@@ -35,7 +36,8 @@ src/core/      không phụ thuộc DOM, kiểm thử được bằng Vitest
   input.ts       phân tích toạ độ gõ tay
   api.ts         window.mhcad (cho script / AI)
 src/ui/        giao diện
-  app.ts         bộ điều khiển: chuột, phím, dòng lệnh, bắt điểm, cài đặt IO cho lệnh tương tác
+  app.ts         bộ điều khiển: chuột, phím, dòng lệnh, bắt điểm, IO cho lệnh tương tác, menu, tab nhiều bản vẽ
+                 (Drawing.saveState/restoreState khi đổi tab)
   view.ts        Viewport + vẽ Canvas 2D theo lô Path2D (KHÔNG dùng closePath: rất chậm trong Chromium)
   props.ts       bảng thuộc tính (Ctrl+1)
   icons.ts       biểu tượng SVG tự vẽ

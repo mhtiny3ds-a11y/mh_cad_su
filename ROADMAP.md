@@ -37,6 +37,15 @@ Nguyên tắc: làm **ít lệnh nhưng chạy chắc**, có kiểm thử. Mỗi
 - ✅ Bảng thuộc tính (Ctrl+1), bấm đúp để sửa chữ tại chỗ, Ctrl+C / Ctrl+V, kéo-thả file
 - ✅ Hiệu năng: vẽ theo lô Path2D, lưu đệm hộp bao / hình vẽ block, chỉ mục lưới — 37.500 đối tượng vẽ ~25 ms
 
+## ✅ v0.4 (phần 1) — Nhiều bản vẽ, menu, lệnh vẽ bổ sung
+
+- ✅ Mở nhiều bản vẽ theo tab (mở file khi đang có bản vẽ → tab mới; lịch sử hoàn tác riêng từng tab; tự lưu tạm mọi tab)
+- ✅ Thanh menu chữ Tệp / Sửa / Vẽ / Sửa đổi / Chú thích / Xem / Đo / Trợ giúp (bố cục riêng của MHCAD)
+- ✅ XLINE, RAY (đối tượng vô hạn: vẽ, chọn, bắt điểm, cắt, offset; đọc từ DXF/DWG, ghi R12 thành LINE đủ dài)
+- ✅ SPLINE vẽ mới (đường cong trơn qua các điểm), DONUT, REVCLOUD (chữ nhật / tự do / biến đối tượng thành mây)
+- ✅ MTEXT nhiều dòng (hộp soạn, tự ngắt dòng theo bề rộng khung), FIND tìm & thay chữ
+- ✅ Bắt điểm tiếp tuyến (TAN)
+
 ## v0.4 — Còn thiếu
 
 - [ ] Chuyển mã TCVN3 / VNI → Unicode khi mở file cũ
@@ -45,9 +54,8 @@ Nguyên tắc: làm **ít lệnh nhưng chạy chắc**, có kiểm thử. Mỗi
 - [ ] Kích thước đọc từ DXF giữ được giá trị đo (hiện hiển thị qua block hình vẽ gốc)
 - [ ] Đa tuyến có cung (bulge) giữ nguyên khi sửa (hiện chia thành đoạn thẳng)
 - [ ] FILLET/CHAMFER cho đa tuyến và cung; OFFSET có cung
-- [ ] Bắt điểm tiếp tuyến (TAN), đường dóng theo điểm (object tracking)
-- [ ] MTEXT nhiều dòng, tìm & thay chữ
-- [ ] XLINE, RAY, SPLINE vẽ mới, DONUT, REVCLOUD, WIPEOUT
+- [ ] Đường dóng theo điểm (object tracking)
+- [ ] WIPEOUT (cần vẽ theo thứ tự đối tượng)
 - [ ] Ghi DXF R2000+ (LWPOLYLINE, HATCH gốc, handle), giữ lại dữ liệu chưa hiểu khi ghi lại
 - [ ] Bảng alias tự sửa; nạp file `.pgp` của người dùng; WBLOCK, thư viện block
 

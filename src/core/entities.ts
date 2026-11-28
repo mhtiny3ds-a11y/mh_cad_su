@@ -124,19 +124,27 @@ export interface HatchEnt extends Base {
   lines: PatLine[];
 }
 
+/** Đường dựng vô hạn hai phía (XLINE) hoặc một phía (RAY, ray = true). dir là véc-tơ đơn vị. */
+export interface XlineEnt extends Base {
+  type: 'XLINE';
+  p: Vec;
+  dir: Vec;
+  ray?: boolean;
+}
+
 /** Điểm (POINT). */
 export interface PointEnt extends Base {
   type: 'POINT';
   p: Vec;
 }
 
-export type Entity = LineEnt | CircleEnt | ArcEnt | PolylineEnt | TextEnt | DimEnt | InsertEnt | HatchEnt | PointEnt;
+export type Entity = LineEnt | CircleEnt | ArcEnt | PolylineEnt | TextEnt | DimEnt | InsertEnt | HatchEnt | PointEnt | XlineEnt;
 export type EntityType = Entity['type'];
 /** Đối tượng chưa có id (dùng khi tạo mới). */
 export type NewEntity = Entity extends infer E ? (E extends Entity ? Omit<E, 'id'> : never) : never;
 type AnyEnt = Entity | NewEntity;
 
-export const ENTITY_TYPES: EntityType[] = ['LINE', 'CIRCLE', 'ARC', 'LWPOLYLINE', 'TEXT', 'DIMENSION', 'INSERT', 'HATCH', 'POINT'];
+export const ENTITY_TYPES: EntityType[] = ['LINE', 'CIRCLE', 'ARC', 'LWPOLYLINE', 'TEXT', 'DIMENSION', 'INSERT', 'HATCH', 'POINT', 'XLINE'];
 
 // ---------- Block ----------
 
@@ -211,17 +219,53 @@ export function polySegments(e: Pick<PolylineEnt, 'pts' | 'closed'>): [Vec, Vec]
   return out;
 }
 
-/** Bốn góc khung chữ (xấp xỉ: mỗi ký tự rộng 0,6 lần chiều cao). */
+/** Độ dài nửa đường dựng dùng để tính toán (lớn hơn mọi bản vẽ thực tế). */
+export const XLINE_FAR = 1e8;
+
+/** Đoạn thẳng đại diện cho XLINE/RAY khi cắt, bắt điểm. */
+export function xlineSeg(e: Pick<XlineEnt, 'p' | 'dir' | 'ray'>, far = XLINE_FAR): [Vec, Vec] {
+  const b: Vec = [e.p[0] + e.dir[0] * far, e.p[1] + e.dir[1] * far];
+  const a: Vec = e.ray ? e.p : [e.p[0] - e.dir[0] * far, e.p[1] - e.dir[1] * far];
+  return [a, b];
+}
+
+/** Khoảng cách giữa hai dòng chữ, tính theo chiều cao chữ. */
+export const LINE_SPACING = 1.6;
+
+/** Các dòng của chữ nhiều dòng (MTEXT nhập vào dùng \n). */
+export const textLines = (t: string): string[] => t.split('\n');
+
+/** Chiều cao cả khối chữ. */
+export const textBlockHeight = (e: Pick<TextEnt, 'h' | 'text'>): number => e.h * (1 + (textLines(e.text).length - 1) * LINE_SPACING);
+
+/** Tách chữ nhiều dòng thành từng dòng, mỗi dòng có điểm chân chữ riêng (căn dọc B). */
+export function textLineOrigins(e: Pick<TextEnt, 'p' | 'h' | 'text' | 'rot' | 'va'>): { text: string; p: Vec }[] {
+  const lines = textLines(e.text);
+  if (lines.length === 1) return [{ text: e.text, p: e.p }];
+  const H = textBlockHeight(e);
+  const top = e.va === 'T' ? 0 : e.va === 'M' ? H / 2 : H;
+  const r = deg2rad(e.rot);
+  const up: Vec = [-Math.sin(r), Math.cos(r)];
+  return lines.map((text, i) => {
+    const k = top - e.h - i * e.h * LINE_SPACING;
+    return { text, p: [e.p[0] + up[0] * k, e.p[1] + up[1] * k] as Vec };
+  });
+}
+
+/** Bốn góc khung chữ (xấp xỉ: mỗi ký tự rộng 0,6 lần chiều cao). Chữ nhiều dòng xếp từ trên xuống. */
 export function textCorners(e: Pick<TextEnt, 'p' | 'h' | 'text' | 'rot' | 'ha' | 'va'>): Vec[] {
-  const w = Math.max(1, e.text.length) * e.h * 0.6;
+  const lines = textLines(e.text);
+  const w = Math.max(1, ...lines.map((l) => l.length)) * e.h * 0.6;
+  const H = textBlockHeight(e);
   const r = deg2rad(e.rot);
   const dx = e.ha === 'C' ? -w / 2 : e.ha === 'R' ? -w : 0;
-  const dy = e.va === 'M' ? -e.h / 2 : e.va === 'T' ? -e.h : 0;
+  // Một dòng: B = chân chữ. Nhiều dòng: B = chân dòng cuối.
+  const dy = e.va === 'M' ? -H / 2 : e.va === 'T' ? -H : 0;
   const along: Vec = [Math.cos(r), Math.sin(r)];
   const up: Vec = [-Math.sin(r), Math.cos(r)];
   const p0: Vec = [e.p[0] + along[0] * dx + up[0] * dy, e.p[1] + along[1] * dx + up[1] * dy];
   const p1 = polar(p0, r, w);
-  const h: Vec = [up[0] * e.h, up[1] * e.h];
+  const h: Vec = [up[0] * H, up[1] * H];
   return [p0, p1, add(p1, h), add(p0, h)];
 }
 
@@ -243,6 +287,10 @@ export function prims(e: AnyEnt): Prim[] {
       return e.loops.flatMap((l) => l.map((p, i) => ({ k: 'seg' as const, a: p, b: l[(i + 1) % l.length] })));
     case 'POINT':
       return [{ k: 'seg', a: e.p, b: e.p }];
+    case 'XLINE': {
+      const [a, b] = xlineSeg(e);
+      return [{ k: 'seg', a, b }];
+    }
     default:
       return expand(e).flatMap((x) => (x.type === 'TEXT' ? [] : prims(x)));
   }
@@ -315,6 +363,8 @@ function bboxRaw(e: AnyEnt): BBox {
     case 'HATCH':
       return loopsBox(e.loops);
     case 'POINT':
+    case 'XLINE':
+      // Đường dựng vô hạn: chỉ tính điểm gốc để "xem toàn bộ" không bị phóng vô cùng.
       boxAdd(b, e.p);
       break;
     default: {
@@ -369,11 +419,15 @@ export function distanceTo(e: AnyEnt, p: Vec): number {
   return best;
 }
 
-/** Chọn kiểu Window (nằm trọn trong khung). */
-export const insideBox = (e: AnyEnt, box: BBox): boolean => boxInside(bbox(e), box);
+/** Chọn kiểu Window (nằm trọn trong khung). Đường dựng vô hạn không bao giờ nằm trọn. */
+export const insideBox = (e: AnyEnt, box: BBox): boolean => e.type !== 'XLINE' && boxInside(bbox(e), box);
 
 /** Chọn kiểu Crossing (nằm trong hoặc cắt khung). */
 export function touchesBox(e: AnyEnt, box: BBox): boolean {
+  if (e.type === 'XLINE') {
+    const [a, b] = xlineSeg(e);
+    return segTouchesBox(a, b, box);
+  }
   if (!boxOverlap(bbox(e), box)) return false;
   if (insideBox(e, box)) return true;
   if (isComplex(e)) return expand(e).some((x) => touchesBox(x, box));
@@ -395,7 +449,7 @@ export function touchesBox(e: AnyEnt, box: BBox): boolean {
 
 // ---------- Điểm bắt (object snap) ----------
 
-export type SnapKind = 'end' | 'mid' | 'center' | 'quad' | 'int' | 'near' | 'insert' | 'perp' | 'node';
+export type SnapKind = 'end' | 'mid' | 'center' | 'quad' | 'int' | 'near' | 'insert' | 'perp' | 'node' | 'tan';
 export interface SnapPoint {
   p: Vec;
   kind: SnapKind;
@@ -434,6 +488,9 @@ export function snapPoints(e: AnyEnt): SnapPoint[] {
       break;
     case 'POINT':
       out.push({ p: e.p, kind: 'node' });
+      break;
+    case 'XLINE':
+      out.push({ p: e.p, kind: e.ray ? 'end' : 'mid' });
       break;
     case 'HATCH':
       break;
@@ -496,6 +553,17 @@ export function perpendicularFoot(e: AnyEnt, from: Vec, near: Vec): Vec | null {
   return best;
 }
 
+/** Tiếp điểm của đường thẳng kẻ từ `from` tới đường tròn / cung (snap Tangent). */
+export function tangentPoints(e: AnyEnt, from: Vec): Vec[] {
+  if (e.type !== 'CIRCLE' && e.type !== 'ARC') return [];
+  const d = dist(from, e.c);
+  if (d <= e.r + 1e-9) return [];
+  const base = angleOf(sub(from, e.c));
+  const t = Math.acos(e.r / d);
+  const out = [polar(e.c, base + t, e.r), polar(e.c, base - t, e.r)];
+  return e.type === 'ARC' ? out.filter((p) => angleInArc(angleOf(sub(p, e.c)), deg2rad(e.start), deg2rad(e.end))) : out;
+}
+
 // ---------- Grip (điểm nắm để sửa nhanh) ----------
 
 export function gripPoints(e: AnyEnt): Vec[] {
@@ -518,6 +586,8 @@ export function gripPoints(e: AnyEnt): Vec[] {
     case 'INSERT':
     case 'POINT':
       return [e.p];
+    case 'XLINE':
+      return [e.p, add(e.p, e.dir)];
     case 'HATCH': {
       const b = loopsBox(e.loops);
       return [[(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2]];
@@ -561,6 +631,12 @@ export function applyGrip<E extends AnyEnt>(e: E, i: number, to: Vec): E {
       return { ...e, p: to };
     case 'HATCH':
       return moveEnt(e, sub(to, gripPoints(e)[0]));
+    case 'XLINE': {
+      if (i === 0) return { ...e, p: to };
+      const d = sub(to, e.p);
+      const L = Math.hypot(d[0], d[1]);
+      return L > 1e-12 ? { ...e, dir: [d[0] / L, d[1] / L] } : e;
+    }
     case 'DIMENSION': {
       const pts = [...e.pts];
       pts[i] = to;
@@ -603,6 +679,12 @@ function mapPts<E extends AnyEnt>(e: E, f: PtFn): E {
       return { ...e, p: f(e.p) };
     case 'HATCH':
       return { ...e, loops: e.loops.map((l) => l.map(f)), lines: e.lines.map((l) => mapPatLine(l, f)) };
+    case 'XLINE': {
+      const p = f(e.p);
+      const d = sub(f(add(e.p, e.dir)), p);
+      const L = Math.hypot(d[0], d[1]) || 1;
+      return { ...e, p, dir: [d[0] / L, d[1] / L] };
+    }
   }
   return e;
 }
@@ -747,6 +829,8 @@ export function describe(e: Entity): string {
       return `${head} · mẫu ${e.pattern} · tỉ lệ ${fmt(e.scale)} · góc ${fmt(e.angle)}° · ${e.loops.length} vòng biên · diện tích ${fmt(hatchArea(e))}`;
     case 'POINT':
       return `${head} · tại ${fp(e.p)}`;
+    case 'XLINE':
+      return `${head} · ${e.ray ? 'tia (RAY)' : 'đường dựng (XLINE)'} qua ${fp(e.p)} · góc ${fmt(normDeg(rad2deg(angleOf(e.dir))))}°`;
   }
 }
 

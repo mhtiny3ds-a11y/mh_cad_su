@@ -37,7 +37,7 @@ type Change =
   | { k: 'dimstyle'; before: DimStyle; after: DimStyle }
   | { k: 'ltscale'; before: number; after: number };
 
-interface Tx {
+export interface Tx {
   label: string;
   changes: Change[];
 }
@@ -322,6 +322,48 @@ export class Drawing {
     this.emit();
   }
 
+  /** Chụp toàn bộ trạng thái (kể cả lịch sử hoàn tác) để chuyển qua lại giữa các tab bản vẽ. */
+  saveState(): DocState {
+    return {
+      entities: new Map(this.entities),
+      layers: new Map(this.layers),
+      blocks: new Map(this.blocks),
+      linetypes: new Map(this.linetypes),
+      dimStyle: this.dimStyle,
+      ltscale: this.ltscale,
+      currentLayer: this.currentLayer,
+      units: this.units,
+      nextId: this.nextId,
+      undo: this.undoStack,
+      redo: this.redoStack,
+      dirty: this.dirty,
+    };
+  }
+
+  /** Khôi phục trạng thái đã chụp bằng saveState(). */
+  restoreState(s: DocState): void {
+    const fill = <K, V>(m: Map<K, V>, src: Map<K, V>) => {
+      m.clear();
+      for (const [k, v] of src) m.set(k, v);
+    };
+    fill(this.entities, s.entities);
+    fill(this.layers, s.layers);
+    fill(this.blocks, s.blocks);
+    fill(this.linetypes, s.linetypes);
+    this.dimStyle = s.dimStyle;
+    this.ltscale = s.ltscale;
+    this.currentLayer = s.currentLayer;
+    this.units = s.units;
+    this.nextId = s.nextId;
+    this.undoStack = s.undo;
+    this.redoStack = s.redo;
+    this.open = null;
+    this.depth = 0;
+    this.dirty = s.dirty;
+    this.activate();
+    this.emit();
+  }
+
   /** Nạp dữ liệu (không ghi undo). */
   load(data: DrawingData): void {
     this.reset();
@@ -355,6 +397,22 @@ export class Drawing {
       entities: this.all().map(({ id: _id, ...rest }) => rest as NewEntity),
     };
   }
+}
+
+/** Trạng thái đầy đủ của một bản vẽ (dùng cho nhiều tab). */
+export interface DocState {
+  entities: Map<number, Entity>;
+  layers: Map<string, Layer>;
+  blocks: Map<string, BlockDef>;
+  linetypes: Map<string, number[]>;
+  dimStyle: DimStyle;
+  ltscale: number;
+  currentLayer: string;
+  units: string;
+  nextId: number;
+  undo: Tx[];
+  redo: Tx[];
+  dirty: boolean;
 }
 
 export interface DrawingData {

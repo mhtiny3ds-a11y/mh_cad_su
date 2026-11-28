@@ -1,7 +1,7 @@
 // Bộ điều khiển giao diện: chuột/bàn phím, dòng lệnh, bắt điểm, chọn đối tượng.
 
 import { type Vec, angleOf, dist, len, polar, rad2deg, sub } from '../core/geom';
-import { Drawing } from '../core/document';
+import { type DocState, type DrawingData, Drawing } from '../core/document';
 import {
   type Ctx,
   type IO,
@@ -10,7 +10,7 @@ import {
   type Registry,
   runInteractive,
 } from '../core/commands';
-import { type NewEntity, type SnapKind, applyGrip, moveEnt, bbox, distanceTo, gripPoints, insideBox, intersections, perpendicularFoot, snapPoints, touchesBox } from '../core/entities';
+import { type Entity, type NewEntity, type SnapKind, applyGrip, moveEnt, bbox, distanceTo, gripPoints, insideBox, intersections, perpendicularFoot, tangentPoints, snapPoints, touchesBox } from '../core/entities';
 import { normDeg } from '../core/entities';
 import { parseInput } from '../core/input';
 import { type MhcadApi, createApi } from '../core/api';
@@ -23,7 +23,7 @@ import { PAPERS, plotSvg } from '../core/svg';
 import { type Theme, Viewport, aciToCss, render } from './view';
 import { ICONS, LOGO } from './icons';
 
-export const VERSION = '0.3.0';
+export const VERSION = '0.4.0';
 
 const THEMES: Record<'dark' | 'light', Theme> = {
   dark: {
@@ -87,7 +87,7 @@ const store = {
 };
 
 const TOOLS = [
-  'LINE', 'PLINE', 'MLINE', 'RECTANG', 'POLYGON', 'CIRCLE', 'ARC', 'ELLIPSE', 'TEXT', '|',
+  'LINE', 'PLINE', 'XLINE', 'MLINE', 'RECTANG', 'POLYGON', 'CIRCLE', 'ARC', 'ELLIPSE', 'SPLINE', 'REVCLOUD', 'TEXT', 'MTEXT', '|',
   'MOVE', 'COPY', 'ROTATE', 'SCALE', 'MIRROR', 'STRETCH', 'ARRAY', 'OFFSET', 'TRIM', 'EXTEND', 'FILLET', 'CHAMFER', 'BREAK', 'JOIN', 'EXPLODE', 'ERASE', '|',
   'DIMLINEAR', 'DIMALIGNED', 'DIMRADIUS', 'DIMANGULAR', 'DIMCONTINUE', '|',
   'HATCH', 'BLOCK', 'INSERT', 'MATCHPROP', '|', 'DIST', 'AREA', 'LIST',
@@ -131,7 +131,149 @@ const TOOL_LABEL: Record<string, string> = {
   STRETCH: 'Kéo giãn (S)',
   ARRAY: 'Mảng chữ nhật / tròn (AR)',
   LIST: 'Thông tin đối tượng (LI)',
+  XLINE: 'Đường dựng vô hạn (XL)',
+  SPLINE: 'Đường cong trơn (SPL)',
+  REVCLOUD: 'Đường mây (RC)',
+  MTEXT: 'Chữ nhiều dòng (MT)',
 };
+
+interface DocTab {
+  name: string;
+  state: DocState | null;
+  /** Dữ liệu JSON chụp khi rời tab (để lưu tạm mà không phải dựng lại). */
+  json?: string;
+  view: { scale: number; cx: number; cy: number } | null;
+}
+
+type MenuItem = { label: string; cmd?: string; act?: string; key?: string } | '-';
+
+/** Thanh menu (bố cục riêng của MHCAD). cmd = lệnh, act = thao tác giao diện. */
+const MENUS: { label: string; items: MenuItem[] }[] = [
+  {
+    label: 'Tệp',
+    items: [
+      { label: 'Bản vẽ mới', act: 'new' },
+      { label: 'Mở DXF / DWG…', act: 'open', key: 'Ctrl+O' },
+      { label: 'Lưu ra DXF', act: 'save', key: 'Ctrl+S' },
+      '-',
+      { label: 'In / xuất PDF…', act: 'plot', key: 'Ctrl+P' },
+      { label: 'Xuất SVG', act: 'svg' },
+      '-',
+      { label: 'Đóng bản vẽ', act: 'close' },
+    ],
+  },
+  {
+    label: 'Sửa',
+    items: [
+      { label: 'Hoàn tác', act: 'undo', key: 'Ctrl+Z' },
+      { label: 'Làm lại', act: 'redo', key: 'Ctrl+Y' },
+      '-',
+      { label: 'Sao chép', act: 'copy', key: 'Ctrl+C' },
+      { label: 'Dán', act: 'paste', key: 'Ctrl+V' },
+      { label: 'Chọn tất cả', act: 'selectall', key: 'Ctrl+A' },
+      { label: 'Xoá', cmd: 'ERASE', key: 'Del' },
+      '-',
+      { label: 'Tìm & thay chữ', cmd: 'FIND' },
+      { label: 'Sao chép thuộc tính', cmd: 'MATCHPROP' },
+      { label: 'Thuộc tính', act: 'props', key: 'Ctrl+1' },
+    ],
+  },
+  {
+    label: 'Vẽ',
+    items: [
+      { label: 'Đoạn thẳng', cmd: 'LINE' },
+      { label: 'Đa tuyến', cmd: 'PLINE' },
+      { label: 'Đường dựng', cmd: 'XLINE' },
+      { label: 'Tia', cmd: 'RAY', key: 'RAY' },
+      { label: 'Tường 2 nét', cmd: 'MLINE' },
+      '-',
+      { label: 'Hình chữ nhật', cmd: 'RECTANG' },
+      { label: 'Đa giác đều', cmd: 'POLYGON' },
+      { label: 'Đường tròn', cmd: 'CIRCLE' },
+      { label: 'Cung tròn', cmd: 'ARC' },
+      { label: 'Elip', cmd: 'ELLIPSE' },
+      { label: 'Đường cong trơn', cmd: 'SPLINE' },
+      { label: 'Vành khuyên', cmd: 'DONUT' },
+      { label: 'Đường mây', cmd: 'REVCLOUD' },
+      { label: 'Điểm', cmd: 'POINT' },
+      '-',
+      { label: 'Tô vật liệu', cmd: 'HATCH' },
+      { label: 'Đường biên vùng', cmd: 'BOUNDARY' },
+      { label: 'Chữ một dòng', cmd: 'TEXT' },
+      { label: 'Chữ nhiều dòng', cmd: 'MTEXT' },
+    ],
+  },
+  {
+    label: 'Sửa đổi',
+    items: [
+      { label: 'Di chuyển', cmd: 'MOVE' },
+      { label: 'Sao chép', cmd: 'COPY' },
+      { label: 'Xoay', cmd: 'ROTATE' },
+      { label: 'Tỉ lệ', cmd: 'SCALE' },
+      { label: 'Đối xứng', cmd: 'MIRROR' },
+      { label: 'Kéo giãn', cmd: 'STRETCH' },
+      { label: 'Mảng', cmd: 'ARRAY' },
+      { label: 'Offset song song', cmd: 'OFFSET' },
+      '-',
+      { label: 'Cắt bỏ', cmd: 'TRIM' },
+      { label: 'Kéo dài', cmd: 'EXTEND' },
+      { label: 'Bo góc', cmd: 'FILLET' },
+      { label: 'Vát góc', cmd: 'CHAMFER' },
+      { label: 'Bẻ gãy', cmd: 'BREAK' },
+      { label: 'Nối', cmd: 'JOIN' },
+      { label: 'Phá khối', cmd: 'EXPLODE' },
+      '-',
+      { label: 'Sửa vùng tô', cmd: 'HATCHEDIT' },
+    ],
+  },
+  {
+    label: 'Chú thích',
+    items: [
+      { label: 'Kích thước ngang/đứng', cmd: 'DIMLINEAR' },
+      { label: 'Kích thước song song', cmd: 'DIMALIGNED' },
+      { label: 'Kích thước bán kính', cmd: 'DIMRADIUS' },
+      { label: 'Kích thước đường kính', cmd: 'DIMDIAMETER' },
+      { label: 'Kích thước góc', cmd: 'DIMANGULAR' },
+      { label: 'Kích thước nối tiếp', cmd: 'DIMCONTINUE' },
+      { label: 'Kiểu kích thước', cmd: 'DIMSTYLE' },
+      '-',
+      { label: 'Tạo block', cmd: 'BLOCK' },
+      { label: 'Chèn block', cmd: 'INSERT' },
+      { label: 'Tỉ lệ kiểu đường', cmd: 'LTSCALE' },
+    ],
+  },
+  {
+    label: 'Xem',
+    items: [
+      { label: 'Xem toàn bộ', act: 'extents', key: 'Z ↵ ↵' },
+      { label: 'Phóng to', act: 'zoomin' },
+      { label: 'Thu nhỏ', act: 'zoomout' },
+      '-',
+      { label: 'Lưới', act: 'grid', key: 'F7' },
+      { label: 'Bắt điểm', act: 'snap', key: 'F3' },
+      { label: 'Vuông góc', act: 'ortho', key: 'F8' },
+      { label: 'Dóng theo góc', act: 'polar', key: 'F10' },
+      '-',
+      { label: 'Quản lý layer', act: 'layers' },
+      { label: 'Nền sáng / tối', act: 'theme' },
+    ],
+  },
+  {
+    label: 'Đo',
+    items: [
+      { label: 'Khoảng cách', cmd: 'DIST' },
+      { label: 'Diện tích', cmd: 'AREA' },
+      { label: 'Thông tin đối tượng', cmd: 'LIST' },
+    ],
+  },
+  {
+    label: 'Trợ giúp',
+    items: [
+      { label: 'Trợ giúp & danh sách lệnh', act: 'help', key: 'F1' },
+      { label: 'Mã nguồn (GitHub)', act: 'source' },
+    ],
+  },
+];
 
 export class App {
   readonly doc = new Drawing();
@@ -170,6 +312,7 @@ export class App {
   private pinch: { d: number; mid: Vec } | null = null;
   private hotGrip: { id: number; i: number } | null = null;
   private index: GridIndex | null = null;
+  private xlines: Entity[] = [];
   private lastRenderMs = 0;
   private lastStats: Record<string, number> = { drawn: 0, total: 0 };
   private dwgWorker: Worker | null = null;
@@ -180,7 +323,18 @@ export class App {
   private lastCmd = '';
   private cmdHistory: string[] = [];
   private histIdx = -1;
-  private fileName = 'ban-ve.dxf';
+  /** Các bản vẽ đang mở (tab). Bản vẽ đang hoạt động nằm trong this.doc, state = null. */
+  private tabs: DocTab[] = [{ name: 'ban-ve.dxf', state: null, view: null }];
+  private activeTab = 0;
+  private shownDirty = false;
+  private menuOpen: HTMLElement | null = null;
+  private get fileName(): string {
+    return this.tabs[this.activeTab].name;
+  }
+  private set fileName(v: string) {
+    this.tabs[this.activeTab].name = v;
+    this.renderTabs();
+  }
   private frame = 0;
   private saveTimer = 0;
 
@@ -236,6 +390,7 @@ export class App {
     this.root.innerHTML = `
       <header class="topbar">
         <div class="brand">${LOGO}<span>MHCAD</span><small>v${VERSION}</small></div>
+        <nav class="menubar" aria-label="Menu">${MENUS.map((m, i) => `<button data-menu="${i}">${m.label}</button>`).join('')}</nav>
         <div class="actions">
           <button data-act="new" title="Bản vẽ mới">${ICONS.new}</button>
           <button data-act="open" title="Mở file DXF / DWG (hoặc kéo-thả vào vùng vẽ)">${ICONS.open}</button>
@@ -256,6 +411,7 @@ export class App {
           <button data-act="help" title="Trợ giúp (F1)">${ICONS.help}</button>
         </div>
       </header>
+      <div class="tabs" id="tabs" role="tablist" aria-label="Bản vẽ đang mở"></div>
       <nav class="toolbar" aria-label="Công cụ">
         ${TOOLS.map((t) => (t === '|' ? '<span class="sep"></span>' : `<button data-cmd="${t}" title="${TOOL_LABEL[t]}">${ICONS[t]}</button>`)).join('')}
       </nav>
@@ -286,6 +442,12 @@ export class App {
       <dialog id="help"></dialog>
       <dialog id="layers"></dialog>
       <dialog id="plot"></dialog>
+      <dialog id="textdlg" class="textdlg"><form method="dialog"><h3 id="textdlg-title">Nội dung chữ</h3>
+        <textarea id="textdlg-area" rows="6" spellcheck="false"></textarea>
+        <p class="muted small">Enter xuống dòng · Ctrl+Enter để xong</p>
+        <div class="row-end"><button value="cancel" type="submit">Huỷ</button><button value="ok" type="submit" class="primary">Xong</button></div>
+      </form></dialog>
+      <div class="menu-pop" id="menupop" role="menu" hidden></div>
       <iframe id="printframe" title="In" aria-hidden="true" tabindex="-1"></iframe>`;
 
     this.canvas = this.root.querySelector('#cv')!;
@@ -298,6 +460,8 @@ export class App {
     this.fileInput = this.root.querySelector('#file')!;
 
     this.bindUi();
+    this.bindMenus();
+    this.renderTabs();
     this.bindCanvas();
     this.bindKeys();
 
@@ -306,6 +470,10 @@ export class App {
 
     this.doc.onChange(() => {
       this.index = null;
+      if (this.doc.dirty !== this.shownDirty) {
+        this.shownDirty = this.doc.dirty;
+        this.renderTabs();
+      }
       this.refreshLayers();
       this.redraw();
       clearTimeout(this.saveTimer);
@@ -402,6 +570,7 @@ export class App {
           this.print(`Đã chuyển DWG trong ${Math.round(performance.now() - t0)} ms`);
         } else text = decodeDxfBytes(bytes);
         const r = readDxf(text);
+        if (this.doc.entities.size || this.doc.dirty) await this.newTab();
         this.doc.load(r.data);
         this.fileName = f.name.replace(/\.(dxf|dwg)$/i, '') + '.dxf';
         this.selection.clear();
@@ -418,13 +587,35 @@ export class App {
   private action(act: string): void {
     switch (act) {
       case 'new':
-        if (this.doc.dirty && this.doc.entities.size && !confirm('Bản vẽ hiện tại chưa lưu ra file. Tạo bản vẽ mới?')) return;
-        this.cancel();
-        this.doc.reset();
-        this.fileName = 'ban-ve.dxf';
-        this.selection.clear();
-        this.vp.fit({ minX: 0, minY: 0, maxX: 10000, maxY: 6000 });
-        this.print('Bản vẽ mới.');
+        void this.newTab().then(() => this.print('Bản vẽ mới (tab mới).'));
+        break;
+      case 'close':
+        void this.closeTab(this.activeTab);
+        break;
+      case 'copy':
+        if (this.selection.size) this.copySelection();
+        else this.print('Chưa chọn đối tượng để sao chép.');
+        break;
+      case 'paste':
+        void this.pasteClip();
+        break;
+      case 'selectall':
+        this.doc.visible().forEach((x) => this.selection.add(x.id));
+        this.redraw();
+        break;
+      case 'zoomin':
+      case 'zoomout':
+        this.vp.zoomAt(this.vp.w / 2, this.vp.h / 2, act === 'zoomin' ? 1.5 : 1 / 1.5);
+        this.redraw();
+        break;
+      case 'snap':
+      case 'ortho':
+      case 'grid':
+      case 'polar':
+        this.toggle(act);
+        break;
+      case 'source':
+        window.open('https://github.com/mhtiny3ds-a11y/mh_cad_su', '_blank', 'noopener');
         break;
       case 'open':
         this.fileInput.click();
@@ -742,12 +933,17 @@ export class App {
     if (!this.cursorScreen) return;
     const w = this.vp.toWorld(this.cursorScreen[0], this.cursorScreen[1]);
     const tol = 6 / this.vp.scale;
-    if (!this.index) this.index = new GridIndex(this.doc.visible(), this.doc.extents());
+    if (!this.index) {
+      const vis = this.doc.visible();
+      this.index = new GridIndex(vis, this.doc.extents());
+      // Đường dựng vô hạn không nằm gọn trong ô lưới nào: luôn xét riêng.
+      this.xlines = vis.filter((e) => e.type === 'XLINE');
+    }
     const r2 = 12 / this.vp.scale;
-    const near = this.index
-      .query({ minX: w[0] - r2, minY: w[1] - r2, maxX: w[0] + r2, maxY: w[1] + r2 })
+    const near = [...new Set([...this.index.query({ minX: w[0] - r2, minY: w[1] - r2, maxX: w[0] + r2, maxY: w[1] + r2 }), ...this.xlines])]
       .filter((e) => {
         if (this.doc.layers.get(e.layer)?.visible === false || this.doc.get(e.id) !== e) return false;
+        if (e.type === 'XLINE') return true;
         const b = bbox(e);
         return w[0] >= b.minX - tol * 2 && w[0] <= b.maxX + tol * 2 && w[1] >= b.minY - tol * 2 && w[1] <= b.maxY + tol * 2;
       });
@@ -789,6 +985,15 @@ export class App {
           best = { p: q, kind: 'perp' };
         }
       }
+    if (base)
+      for (const e of near)
+        for (const q of tangentPoints(e, base)) {
+          const d = dist(q, w);
+          if (d < bd * 0.8) {
+            bd = d;
+            best = { p: q, kind: 'tan' };
+          }
+        }
     const cand = near.filter((e) => distanceTo(e, w) < stol).slice(0, 25);
     for (let i = 0; i < cand.length; i++)
       for (let j = i + 1; j < cand.length; j++)
@@ -902,6 +1107,9 @@ export class App {
       } else if (mod && e.key.toLowerCase() === 'v' && document.activeElement === this.input && !this.input.value) {
         e.preventDefault();
         void this.pasteClip();
+      } else if (mod && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        this.fileInput.click();
       } else if (mod && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         this.showPlot();
@@ -1099,6 +1307,7 @@ export class App {
     getDistance: (msg, o = {}) => this.request('distance', msg, { base: o.base, def: o.def, preview: o.preview }),
     getAngle: (msg, o) => this.request('angle', msg, { base: o.base, def: o.def, preview: o.preview }),
     getString: (msg, o = {}) => this.request('string', msg, { def: o.def, spaces: o.spaces }),
+    getText: (msg, def) => this.textDialog(msg, def ?? ''),
     getSelection: (msg, o = {}) => this.request('selection', msg, { single: o.single }),
     getEntity: (msg, o = {}) => this.request('entity', msg, { keywords: o.keywords, allowNone: true }),
     print: (m) => this.print(m),
@@ -1209,28 +1418,237 @@ export class App {
     this.historyEl.scrollTop = this.historyEl.scrollHeight;
   }
 
+  // ---------- Nhiều bản vẽ (tab) ----------
+
+  private renderTabs(): void {
+    const el = this.root.querySelector<HTMLElement>('#tabs');
+    if (!el) return;
+    this.shownDirty = this.doc.dirty;
+    el.innerHTML =
+      this.tabs
+        .map((t, i) => {
+          const dirty = i === this.activeTab ? this.doc.dirty : !!t.state?.dirty;
+          return `<div class="tab${i === this.activeTab ? ' on' : ''}" role="tab" aria-selected="${i === this.activeTab}" data-tab="${i}" title="${escapeHtml(t.name)}">
+            <span class="name">${escapeHtml(t.name.replace(/\.dxf$/i, ''))}${dirty ? ' •' : ''}</span>
+            <button class="x" data-close="${i}" aria-label="Đóng ${escapeHtml(t.name)}">✕</button></div>`;
+        })
+        .join('') + `<button class="tab-new" data-act="new" title="Bản vẽ mới (tab mới)">+</button>`;
+    el.querySelectorAll<HTMLElement>('[data-tab]').forEach((t) =>
+      t.addEventListener('mousedown', (ev) => {
+        if ((ev.target as HTMLElement).closest('[data-close]')) return;
+        if (ev.button === 1) {
+          ev.preventDefault();
+          void this.closeTab(Number(t.dataset.tab));
+        } else void this.switchTab(Number(t.dataset.tab));
+      }),
+    );
+    el.querySelectorAll<HTMLElement>('[data-close]').forEach((b) =>
+      b.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        void this.closeTab(Number(b.dataset.close));
+      }),
+    );
+    el.querySelector('.tab-new')!.addEventListener('click', () => this.action('new'));
+  }
+
+  /** Dừng lệnh đang chạy (nếu có) trước khi đổi bản vẽ. */
+  private async stopRunning(): Promise<void> {
+    if (this.running) {
+      this.cancel();
+      await this.running;
+    }
+  }
+
+  private stashActive(): void {
+    const t = this.tabs[this.activeTab];
+    t.state = this.doc.saveState();
+    t.json = this.doc.entities.size ? JSON.stringify(this.doc.toData()) : undefined;
+    t.view = { scale: this.vp.scale, cx: this.vp.cx, cy: this.vp.cy };
+  }
+
+  private activate(i: number): void {
+    const t = this.tabs[i];
+    this.activeTab = i;
+    this.selection.clear();
+    this.hover = null;
+    this.index = null;
+    if (t.state) this.doc.restoreState(t.state);
+    else this.doc.reset();
+    t.state = null;
+    if (t.view) {
+      this.vp.scale = t.view.scale;
+      this.vp.cx = t.view.cx;
+      this.vp.cy = t.view.cy;
+    } else {
+      const b = this.doc.extents();
+      this.vp.fit(b ?? { minX: 0, minY: 0, maxX: 10000, maxY: 6000 });
+    }
+    this.renderTabs();
+    this.refreshLayers();
+    this.propsSig = '';
+    if (this.propsOpen) this.refreshProps();
+    this.redraw();
+  }
+
+  async switchTab(i: number): Promise<void> {
+    if (i === this.activeTab || !this.tabs[i]) return;
+    await this.stopRunning();
+    this.stashActive();
+    this.activate(i);
+  }
+
+  async newTab(): Promise<void> {
+    await this.stopRunning();
+    this.stashActive();
+    const used = new Set(this.tabs.map((t) => t.name));
+    let n = 1;
+    while (used.has(n === 1 ? 'ban-ve.dxf' : `ban-ve-${n}.dxf`)) n++;
+    this.tabs.push({ name: n === 1 ? 'ban-ve.dxf' : `ban-ve-${n}.dxf`, state: null, view: null });
+    this.activate(this.tabs.length - 1);
+  }
+
+  async closeTab(i: number): Promise<void> {
+    const t = this.tabs[i];
+    if (!t) return;
+    const active = i === this.activeTab;
+    const dirty = active ? this.doc.dirty && this.doc.entities.size > 0 : !!t.state?.dirty && t.state.entities.size > 0;
+    if (dirty && !confirm(`Bản vẽ "${t.name}" chưa lưu ra file. Vẫn đóng?`)) return;
+    if (active) await this.stopRunning();
+    if (this.tabs.length === 1) {
+      this.tabs[0] = { name: 'ban-ve.dxf', state: null, view: null };
+      this.activate(0);
+      return;
+    }
+    this.tabs.splice(i, 1);
+    if (active) this.activate(Math.min(i, this.tabs.length - 1));
+    else {
+      if (i < this.activeTab) this.activeTab--;
+      this.renderTabs();
+    }
+  }
+
+  // ---------- Menu ----------
+
+  private bindMenus(): void {
+    const pop = this.root.querySelector<HTMLElement>('#menupop')!;
+    const open = (btn: HTMLElement) => {
+      const m = MENUS[Number(btn.dataset.menu)];
+      pop.innerHTML = m.items
+        .map((it) =>
+          it === '-'
+            ? '<hr />'
+            : `<button role="menuitem" data-mi="${it.cmd ? 'cmd:' + it.cmd : 'act:' + it.act}"><span>${escapeHtml(it.label)}</span><kbd>${escapeHtml(it.key ?? (it.cmd ? this.aliasOf(it.cmd) : ''))}</kbd></button>`,
+        )
+        .join('');
+      const r = btn.getBoundingClientRect();
+      pop.style.left = `${Math.max(4, Math.min(r.left, innerWidth - 270))}px`;
+      pop.style.top = `${r.bottom + 2}px`;
+      pop.hidden = false;
+      this.menuOpen?.classList.remove('on');
+      btn.classList.add('on');
+      this.menuOpen = btn;
+    };
+    const close = () => {
+      pop.hidden = true;
+      this.menuOpen?.classList.remove('on');
+      this.menuOpen = null;
+    };
+    this.root.querySelectorAll<HTMLElement>('[data-menu]').forEach((b) => {
+      b.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (this.menuOpen === b) close();
+        else open(b);
+      });
+      b.addEventListener('mouseenter', () => {
+        if (this.menuOpen && this.menuOpen !== b) open(b);
+      });
+    });
+    pop.addEventListener('click', (ev) => {
+      const it = (ev.target as HTMLElement).closest<HTMLElement>('[data-mi]');
+      if (!it) return;
+      close();
+      const [kind, v] = it.dataset.mi!.split(':');
+      if (kind === 'cmd') {
+        void this.start(v);
+        this.input.focus();
+      } else this.action(v);
+    });
+    document.addEventListener('mousedown', (ev) => {
+      if (this.menuOpen && !(ev.target as HTMLElement).closest('#menupop, [data-menu]')) close();
+    });
+    window.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && this.menuOpen) close();
+    });
+  }
+
+  private aliasOf(cmd: string): string {
+    const a = this.reg.resolve(cmd)?.aliases ?? [];
+    return a.length ? a.reduce((x, y) => (y.length < x.length ? y : x)) : '';
+  }
+
+  /** Hộp soạn chữ nhiều dòng. */
+  private textDialog(title: string, def: string): Promise<string | null> {
+    const dlg = this.root.querySelector<HTMLDialogElement>('#textdlg')!;
+    const area = dlg.querySelector<HTMLTextAreaElement>('textarea')!;
+    dlg.querySelector('#textdlg-title')!.textContent = title;
+    area.value = def;
+    dlg.returnValue = '';
+    return new Promise((resolve) => {
+      area.onkeydown = (ev) => {
+        ev.stopPropagation();
+        if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+          ev.preventDefault();
+          dlg.close('ok');
+        }
+      };
+      dlg.addEventListener(
+        'close',
+        () => {
+          resolve(dlg.returnValue === 'ok' && area.value.trim() ? area.value.replace(/\r\n?/g, '\n') : null);
+          this.input.focus();
+        },
+        { once: true },
+      );
+      dlg.showModal();
+      area.focus();
+    });
+  }
+
   // ---------- File & lưu tạm ----------
 
   private saveDxf(): void {
     this.download(writeDxf(this.doc.toData()), this.fileName, 'application/dxf');
     this.doc.dirty = false;
+    this.renderTabs();
     this.print(`Đã lưu ${this.fileName} (${this.doc.entities.size} đối tượng).`);
   }
 
+  /** Lưu tạm mọi tab vào bộ nhớ trình duyệt (tab không hoạt động dùng bản JSON đã lưu khi rời tab). */
   private autosave(): void {
-    store.set('mhcad.autosave', JSON.stringify({ name: this.fileName, data: this.doc.toData() }));
+    const parts = this.tabs.map((t, i) =>
+      i === this.activeTab ? JSON.stringify({ name: t.name, data: this.doc.toData() }) : `{"name":${JSON.stringify(t.name)},"data":${t.json ?? 'null'}}`,
+    );
+    store.set('mhcad.autosave', `{"active":${this.activeTab},"tabs":[${parts.join(',')}]}`);
   }
 
   private restore(): boolean {
     const raw = store.get('mhcad.autosave');
     if (!raw) return false;
     try {
-      const { name, data } = JSON.parse(raw);
-      if (data?.format !== 'mhcad' || !data.entities?.length) return false;
-      this.doc.load(data);
-      this.fileName = name || this.fileName;
-      this.zoomExtents();
-      this.print(`Đã khôi phục bản vẽ lưu tạm (${data.entities.length} đối tượng).`);
+      const saved = JSON.parse(raw) as { active?: number; tabs?: { name: string; data: DrawingData | null }[]; name?: string; data?: DrawingData };
+      // Định dạng cũ: một bản vẽ.
+      const list = (saved.tabs ?? [{ name: saved.name ?? 'ban-ve.dxf', data: saved.data ?? null }]).filter((t) => t.data?.format === 'mhcad' && t.data.entities?.length);
+      if (!list.length) return false;
+      this.tabs = list.map((t) => ({ name: t.name || 'ban-ve.dxf', state: null, view: null }));
+      list.forEach((t, i) => {
+        this.doc.load(t.data!);
+        this.tabs[i].state = this.doc.saveState();
+        this.tabs[i].json = JSON.stringify(t.data);
+      });
+      const act = Math.min(Math.max(0, saved.active ?? 0), list.length - 1);
+      this.activate(act);
+      const n = list.reduce((s, t) => s + t.data!.entities.length, 0);
+      this.print(`Đã khôi phục ${list.length > 1 ? `${list.length} bản vẽ` : 'bản vẽ'} lưu tạm (${n} đối tượng).`);
       return true;
     } catch {
       return false;
@@ -1347,6 +1765,7 @@ export class App {
     quad: 'Góc phần tư',
     int: 'Giao điểm',
     perp: 'Vuông góc',
+    tan: 'Tiếp tuyến',
     node: 'Điểm',
     insert: 'Điểm chèn',
     near: 'Gần nhất',
@@ -1408,6 +1827,12 @@ export class App {
   private editTextInline(id: number): void {
     const e = this.doc.get(id);
     if (!e || (e.type !== 'TEXT' && e.type !== 'DIMENSION')) return;
+    if (e.type === 'TEXT' && e.text.includes('\n')) {
+      void this.textDialog('Sửa chữ nhiều dòng', e.text).then((v) => {
+        if (v !== null && v !== e.text) this.tryRun('SETPROP', { ids: [id], set: { text: v } });
+      });
+      return;
+    }
     const inp = this.root.querySelector<HTMLInputElement>('#inline')!;
     const b = bbox(e);
     const q = this.vp.toScreen([b.minX, b.maxY]);

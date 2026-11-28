@@ -4,10 +4,12 @@ Phần mềm CAD 2D **miễn phí, mã nguồn mở**, chạy ngay trên trình 
 
 👉 Dùng thử: https://mhtiny3ds-a11y.github.io/mh_cad_su/ (sau khi bật GitHub Pages, xem bên dưới)
 
-## Tính năng (v0.3)
+## Tính năng (v0.4)
 
-- **Mở file DWG** (AutoCAD 2000–2018) và DXF ngay trên trình duyệt, kéo-thả file vào vùng vẽ
-- Vẽ: đoạn thẳng, đa tuyến, **tường 2 nét (MLINE)**, hình chữ nhật, đa giác đều, đường tròn, cung tròn, elip, điểm, chữ tiếng Việt
+- **Mở file DWG** (phiên bản R2000–R2018) và DXF ngay trên trình duyệt, kéo-thả file vào vùng vẽ
+- **Mở nhiều bản vẽ cùng lúc theo tab**, mỗi bản vẽ giữ lịch sử hoàn tác riêng; thanh menu chữ (Tệp, Sửa, Vẽ, Sửa đổi…)
+- Vẽ: đoạn thẳng, đa tuyến, **đường dựng vô hạn (XLINE, RAY)**, **tường 2 nét (MLINE)**, hình chữ nhật, đa giác đều, đường tròn, cung tròn, elip,
+  **đường cong trơn (SPLINE)**, **đường mây (REVCLOUD)**, vành khuyên (DONUT), điểm, chữ tiếng Việt một dòng và **nhiều dòng (MTEXT)**; tìm & thay chữ (FIND)
 - **Tô vật liệu (HATCH)**: bấm vào trong vùng là tự dò biên, nhận đảo; 12 mẫu (gạch, bê tông, đất, thép…)
 - Sửa: di chuyển, sao chép, xoay, tỉ lệ, đối xứng, offset, **cắt (TRIM), kéo dài (EXTEND), bo góc (FILLET), vát góc (CHAMFER), bẻ (BREAK), nối (JOIN), kéo giãn (STRETCH), mảng (ARRAY)**, phá, xoá; **sửa nhanh bằng grip**
 - **Kích thước**: ngang/đứng, song song, bán kính, đường kính, góc, nối tiếp; chỉnh kiểu kích thước
@@ -18,7 +20,7 @@ Phần mềm CAD 2D **miễn phí, mã nguồn mở**, chạy ngay trên trình 
 - **Gợi ý lệnh khi gõ**, ô nhập động cạnh con trỏ, POLAR 45°
 - Nhanh với bản vẽ lớn (hàng chục nghìn đối tượng)
 - Dòng lệnh quen thuộc: gõ `L`, `C`, `REC`, `M`, `CO`, `O`…; toạ độ `x,y`, `@dx,dy`, `@dài<góc`; gõ số để vẽ theo hướng chuột
-- Bắt điểm (đầu mút, trung điểm, tâm, góc phần tư, giao điểm), ORTHO, lưới
+- Bắt điểm (đầu mút, trung điểm, tâm, góc phần tư, giao điểm, vuông góc, **tiếp tuyến**), ORTHO, lưới
 - Chọn bằng bấm, khung trái→phải (nằm trọn) và phải→trái (chạm khung)
 - Layer: tạo, màu, đặt hiện hành, khoá/tắt
 - Mở / lưu **DXF** (mở được bằng các phần mềm CAD phổ biến); đọc được block, kích thước, cung trong đa tuyến, ellipse, spline, bảng mã tiếng Việt cũ; chữ tiếng Việt giữ nguyên

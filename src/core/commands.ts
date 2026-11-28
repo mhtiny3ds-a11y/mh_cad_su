@@ -58,6 +58,8 @@ export interface IO {
   getDistance(msg: string, opts?: { base?: Vec; def?: number; preview?: PointOpts['preview'] }): Promise<number | null>;
   getAngle(msg: string, opts: { base: Vec; def?: number; preview?: PointOpts['preview'] }): Promise<number | null>;
   getString(msg: string, opts?: { def?: string; spaces?: boolean }): Promise<string | null>;
+  /** Nhập chữ nhiều dòng (hộp soạn thảo); giao diện không có thì lệnh dùng getString. */
+  getText?(msg: string, def?: string): Promise<string | null>;
   /** Bấm vào một đối tượng: trả về id và điểm bấm; Enter = null; gõ từ khoá = chuỗi. */
   getEntity(msg: string, opts?: { keywords?: string[] }): Promise<{ id: number; p: Vec } | string | null>;
   /** single: bấm trúng một đối tượng là xong ngay. */

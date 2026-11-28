@@ -5,7 +5,8 @@ import { MODIFY_COMMANDS } from './cmds/modify';
 import { ANNOTATE_COMMANDS } from './cmds/annotate';
 import { HATCH_COMMANDS } from './cmds/hatch';
 import { EDIT_COMMANDS } from './cmds/edit';
+import { DRAW_COMMANDS } from './cmds/draw';
 
 export function createRegistry(): Registry {
-  return new Registry([...BUILTIN, ...MODIFY_COMMANDS, ...ANNOTATE_COMMANDS, ...HATCH_COMMANDS, ...EDIT_COMMANDS]);
+  return new Registry([...BUILTIN, ...MODIFY_COMMANDS, ...ANNOTATE_COMMANDS, ...HATCH_COMMANDS, ...EDIT_COMMANDS, ...DRAW_COMMANDS]);
 }

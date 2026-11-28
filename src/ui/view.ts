@@ -4,7 +4,7 @@
 import type { BBox, Vec } from '../core/geom';
 import { deg2rad } from '../core/geom';
 import type { Drawing } from '../core/document';
-import { type Entity, type NewEntity, type SnapKind, bbox, expand, gripPoints } from '../core/entities';
+import { type Entity, type NewEntity, type SnapKind, bbox, expand, gripPoints, textLineOrigins, xlineSeg } from '../core/entities';
 import { hatchSegments } from '../core/hatch';
 
 export class Viewport {
@@ -235,6 +235,10 @@ function addPath(p: Path2D, e: NewEntity | Entity, vp: Viewport): void {
 }
 
 function drawText(g: CanvasRenderingContext2D, e: NewEntity & { type: 'TEXT' }, vp: Viewport, color: string): void {
+  if (e.text.includes('\n')) {
+    for (const l of textLineOrigins(e)) drawText(g, { ...e, text: l.text, p: l.p, va: 'B' }, vp, color);
+    return;
+  }
   const px = e.h * vp.scale;
   const p = vp.toScreen(e.p);
   if (px < 1.5) {
@@ -294,6 +298,15 @@ function queueEntity(b: Batch, e: NewEntity | Entity, s: RenderState, override: 
     case 'TEXT':
       b.texts.push({ e, color });
       return;
+    case 'XLINE': {
+      // Chỉ vẽ phần nằm trong màn hình (cộng dư).
+      const v = vp.worldBox();
+      const far = Math.hypot(e.p[0] - (v.minX + v.maxX) / 2, e.p[1] - (v.minY + v.maxY) / 2) + Math.hypot(v.maxX - v.minX, v.maxY - v.minY);
+      const [a, c] = xlineSeg(e, far);
+      const dash = override ? [6, 4] : dashFor(doc.linePattern(e), doc.ltscale, vp.scale);
+      addPath(b.stroke(color, dash, width), { type: 'LINE', a, b: c, layer: '' }, vp);
+      return;
+    }
     case 'POINT': {
       const q = vp.toScreen(e.p);
       b.fill(color).rect(q[0] - 1.5, q[1] - 1.5, 3, 3);
@@ -392,6 +405,12 @@ function drawSnapMarker(g: CanvasRenderingContext2D, p: Vec, kind: SnapKind, col
       g.lineTo(p[0], p[1]);
       g.lineTo(p[0], p[1] + s);
       break;
+    case 'tan':
+      g.moveTo(p[0] + s, p[1]);
+      g.arc(p[0], p[1], s, 0, Math.PI * 2);
+      g.moveTo(p[0] - s, p[1] - s);
+      g.lineTo(p[0] + s, p[1] - s);
+      break;
     case 'node':
       g.arc(p[0], p[1], s, 0, Math.PI * 2);
       g.moveTo(p[0] - s, p[1] - s);
@@ -448,10 +467,10 @@ export function render(g: CanvasRenderingContext2D, s: RenderState): void {
   const tc = performance.now();
   for (const e of doc.visible()) {
     const b = bbox(e);
-    if (b.maxX < view.minX - pad || b.minX > view.maxX + pad || b.maxY < view.minY - pad || b.minY > view.maxY + pad) continue;
+    if (e.type !== 'XLINE' && (b.maxX < view.minX - pad || b.minX > view.maxX + pad || b.maxY < view.minY - pad || b.minY > view.maxY + pad)) continue;
     drawn++;
     // Đối tượng quá nhỏ trên màn hình (< 1 px) vẽ thành một chấm.
-    if ((b.maxX - b.minX) * vp.scale < 1 && (b.maxY - b.minY) * vp.scale < 1 && e.type !== 'TEXT') {
+    if ((b.maxX - b.minX) * vp.scale < 1 && (b.maxY - b.minY) * vp.scale < 1 && e.type !== 'TEXT' && e.type !== 'XLINE') {
       const q = vp.toScreen([b.minX, b.minY]);
       batch.fill(aciToCss(e.color ?? doc.layers.get(e.layer)?.color ?? 7, theme.fg)).rect(q[0], q[1] - 1, 1, 1);
       continue;
