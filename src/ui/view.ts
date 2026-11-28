@@ -118,6 +118,8 @@ export interface RenderState {
   /** Hiện điểm nắm (grip) của đối tượng đang chọn. */
   grips: boolean;
   hotGrip: { id: number; i: number } | null;
+  /** Tia dóng POLAR. */
+  track?: { from: Vec; angle: number } | null;
   /** Thống kê lần vẽ gần nhất (ghi ra). */
   stats?: { drawn: number; total: number; collectMs?: number; flushMs?: number; batches?: number };
 }
@@ -492,6 +494,23 @@ export function render(g: CanvasRenderingContext2D, s: RenderState): void {
     g.fillRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));
     g.strokeRect(Math.min(a[0], b[0]) + 0.5, Math.min(a[1], b[1]) + 0.5, Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));
     g.setLineDash([]);
+  }
+
+  if (s.track) {
+    // Đường gióng chấm chấm theo góc POLAR, kéo dài hết màn hình.
+    const o = vp.toScreen(s.track.from);
+    const a = -deg2rad(s.track.angle);
+    const L = vp.w + vp.h;
+    g.save();
+    g.strokeStyle = theme.accent;
+    g.globalAlpha = 0.8;
+    g.lineWidth = 1;
+    g.setLineDash([2, 4]);
+    g.beginPath();
+    g.moveTo(o[0], o[1]);
+    g.lineTo(o[0] + Math.cos(a) * L, o[1] + Math.sin(a) * L);
+    g.stroke();
+    g.restore();
   }
 
   if (s.snap) drawSnapMarker(g, vp.toScreen(s.snap.p), s.snap.kind, theme.snap);

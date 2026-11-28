@@ -330,3 +330,44 @@ describe('HATCH', () => {
     if (pl.type === 'LWPOLYLINE') expect(pl.pts.length).toBe(3);
   });
 });
+
+describe('SETPROP, ARRAY, STRETCH, ELLIPSE', () => {
+  it('SETPROP sửa hình học và thuộc tính chung', () => {
+    const { doc, api, first } = setup();
+    const c = first(api.run('CIRCLE', { center: [0, 0], radius: 5 }));
+    api.run('SETPROP', { ids: [c], set: { r: 50, c: [10, 20], layer: 'X', color: 3 } });
+    expect(doc.get(c)).toMatchObject({ r: 50, c: [10, 20], layer: 'X', color: 3 });
+    api.run('SETPROP', { ids: [c], set: '{"color":"BYLAYER"}' });
+    expect(doc.get(c)!.color).toBeUndefined();
+    expect(() => api.run('SETPROP', { ids: [c], set: { text: 'x' } })).toThrow(/không có thuộc tính/);
+    expect(() => api.run('SETPROP', { ids: [c], set: { r: -1 } })).toThrow();
+    const t = first(api.run('TEXT', { position: [0, 0], text: 'A' }));
+    api.run('SETPROP', { ids: [t], set: { text: 'Phòng khách', h: 300 } });
+    expect(doc.get(t)).toMatchObject({ text: 'Phòng khách', h: 300 });
+  });
+  it('ARRAY chữ nhật và tròn', () => {
+    const { doc, api, first } = setup();
+    const c = first(api.run('CIRCLE', { center: [0, 0], radius: 5 }));
+    expect((api.run('ARRAY', { ids: [c], rows: 2, cols: 3, dx: 100, dy: 50 }).ids as number[]).length).toBe(5);
+    const l = first(api.run('LINE', { points: [[100, 0], [120, 0]] }));
+    api.run('ARRAY', { ids: [l], kind: 'polar', center: [0, 0], count: 4 });
+    const lines = doc.all().filter((e) => e.type === 'LINE') as Extract<Entity, { type: 'LINE' }>[];
+    expect(lines.length).toBe(4);
+    expect(lines.some((x) => Math.abs(x.a[1] - 100) < 1e-9 && Math.abs(x.a[0]) < 1e-9)).toBe(true);
+  });
+  it('STRETCH dời đầu mút trong khung, giữ phần ngoài', () => {
+    const { doc, api, first } = setup();
+    const r = first(api.run('RECTANG', { p1: [0, 0], p2: [100, 50] }));
+    const l = first(api.run('LINE', { points: [[0, 100], [100, 100]] }));
+    api.run('STRETCH', { p1: [90, -10], p2: [110, 110], from: [0, 0], to: [50, 0] });
+    const e = doc.get(r)!;
+    if (e.type === 'LWPOLYLINE') expect(Math.max(...e.pts.map((p) => p[0]))).toBe(150);
+    expect(doc.get(l)).toMatchObject({ a: [0, 100], b: [150, 100] });
+  });
+  it('ELLIPSE', () => {
+    const { api, first } = setup();
+    const e = first(api.run('ELLIPSE', { center: [0, 0], rx: 100, ry: 50 }));
+    const r = api.run('AREA', { ids: [e] });
+    expect(r.area as number).toBeCloseTo(Math.PI * 5000, -2);
+  });
+});
