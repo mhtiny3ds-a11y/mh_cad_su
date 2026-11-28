@@ -1,0 +1,12 @@
+{
+  "name": "MHCAD",
+  "short_name": "MHCAD",
+  "description": "Phần mềm CAD 2D miễn phí, mã nguồn mở, chạy trên trình duyệt",
+  "lang": "vi",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#14181f",
+  "theme_color": "#0f766e",
+  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "mhcad",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MHCAD — phần mềm CAD 2D miễn phí, mã nguồn mở, chạy trên trình duyệt",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "e2e": "node e2e/smoke.mjs"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vite": "^8.0.0",
+    "vitest": "^5.0.0"
+  }
+}
