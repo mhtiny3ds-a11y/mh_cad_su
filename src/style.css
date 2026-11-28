@@ -1,0 +1,363 @@
+:root {
+  --bg: #0f1318;
+  --panel: #171c23;
+  --panel-2: #1e252e;
+  --border: #2a323d;
+  --text: #e6edf3;
+  --muted: #8b98a7;
+  --accent: #2dd4bf;
+  --accent-ink: #042f2e;
+  --hover: #263040;
+  --on: #134e4a;
+  color-scheme: dark;
+}
+:root[data-theme='light'] {
+  --bg: #e9ece6;
+  --panel: #f6f7f3;
+  --panel-2: #eceee8;
+  --border: #d3d8cf;
+  --text: #17202a;
+  --muted: #5b6672;
+  --accent: #0f766e;
+  --accent-ink: #f0fdfa;
+  --hover: #e0e5dc;
+  --on: #ccfbf1;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
+  overflow: hidden;
+}
+#app {
+  height: 100dvh;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto 1fr auto auto;
+  grid-template-areas:
+    'top top'
+    'tools stage'
+    'cmd cmd'
+    'status status';
+}
+button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+button:hover {
+  background: var(--hover);
+}
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.topbar {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.brand small {
+  color: var(--muted);
+  font-weight: 400;
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.actions.right {
+  margin-left: auto;
+}
+.actions button,
+.toolbar button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+.sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 6px;
+}
+.layer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  height: 30px;
+  margin-right: 4px;
+}
+.layer .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  flex: none;
+}
+.layer select {
+  background: transparent;
+  color: var(--text);
+  border: 0;
+  font: inherit;
+  max-width: 160px;
+}
+.layer select option {
+  background: var(--panel);
+}
+
+.toolbar {
+  grid-area: tools;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 4px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.toolbar .sep {
+  width: 20px;
+  height: 1px;
+  margin: 4px auto;
+}
+
+.stage {
+  grid-area: stage;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+#cv {
+  display: block;
+  cursor: none;
+  touch-action: none;
+}
+
+.cmdline {
+  grid-area: cmd;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, 'DejaVu Sans Mono', monospace;
+  font-size: 12.5px;
+}
+.history {
+  height: 74px;
+  overflow-y: auto;
+  padding: 4px 10px;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+.history .echo {
+  color: var(--text);
+  opacity: 0.85;
+}
+.history .echo.cmd {
+  color: var(--accent);
+}
+.prompt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 6px;
+  border-top: 1px solid var(--border);
+}
+.prompt {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+  color: var(--accent);
+}
+#cmd {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font: inherit;
+}
+
+.status {
+  grid-area: status;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 3px 10px;
+  background: var(--panel-2);
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+.coords {
+  font-family: ui-monospace, Consolas, monospace;
+  min-width: 160px;
+  font-variant-numeric: tabular-nums;
+}
+.toggles {
+  display: flex;
+  gap: 4px;
+}
+.toggles button {
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.toggles button.on {
+  background: var(--on);
+  color: var(--text);
+  border-color: var(--accent);
+}
+.units {
+  margin-left: auto;
+}
+
+dialog {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 0;
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+}
+dialog::backdrop {
+  background: rgb(0 0 0 / 0.45);
+}
+.help {
+  padding: 0 20px 20px;
+}
+.help header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--panel);
+  padding: 14px 0 6px;
+}
+.help h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.help h3 {
+  margin: 18px 0 6px;
+  font-size: 14px;
+  color: var(--accent);
+}
+.help ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.help li {
+  margin: 3px 0;
+}
+.help table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.help td,
+.help th {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.help code,
+.help pre {
+  font-family: ui-monospace, Consolas, monospace;
+  background: var(--panel-2);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.help pre {
+  padding: 8px 10px;
+  overflow-x: auto;
+}
+.help .note {
+  color: var(--muted);
+  font-size: 12px;
+}
+.help .close {
+  width: 32px;
+  height: 32px;
+}
+
+/* Điện thoại: thanh công cụ nằm ngang phía dưới vùng vẽ. */
+@media (max-width: 640px) {
+  #app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto auto auto;
+    grid-template-areas: 'top' 'stage' 'tools' 'cmd' 'status';
+  }
+  .toolbar {
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: 0;
+    border-top: 1px solid var(--border);
+    padding: 4px;
+  }
+  .toolbar .sep {
+    width: 1px;
+    height: 20px;
+    margin: auto 4px;
+  }
+  .topbar {
+    gap: 6px;
+    padding: 4px 6px;
+  }
+  .brand span,
+  .brand small {
+    display: none;
+  }
+  .layer select {
+    max-width: 90px;
+  }
+  .history {
+    height: 44px;
+  }
+  .coords {
+    min-width: 0;
+  }
+  .units {
+    display: none;
+  }
+}
