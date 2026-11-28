@@ -28,6 +28,9 @@
 * {
   box-sizing: border-box;
 }
+[hidden] {
+  display: none !important;
+}
 html,
 body {
   margin: 0;
@@ -463,5 +466,180 @@ dialog::backdrop {
 @media print {
   #app {
     display: none;
+  }
+}
+.stage.drop::after {
+  content: 'Thả file DXF / DWG vào đây';
+  position: absolute;
+  inset: 12px;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+  font-size: 16px;
+  pointer-events: none;
+}
+
+.dyn {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  gap: 4px;
+  pointer-events: none;
+  font: 12px/1.2 ui-monospace, Consolas, monospace;
+  z-index: 3;
+  white-space: nowrap;
+}
+.dyn span {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.15);
+}
+.dyn .p {
+  color: var(--muted);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dyn .v {
+  font-variant-numeric: tabular-nums;
+}
+.dyn .s {
+  background: #facc15;
+  color: #1f2937;
+  border-color: #eab308;
+}
+.dyn .t {
+  border-color: var(--accent);
+}
+.cmdline {
+  position: relative;
+}
+.ac {
+  position: absolute;
+  left: 10px;
+  bottom: 100%;
+  margin: 0 0 4px;
+  padding: 4px;
+  list-style: none;
+  min-width: 320px;
+  max-width: calc(100% - 20px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
+  z-index: 5;
+  font-family: system-ui, sans-serif;
+}
+.ac li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 8px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.ac li small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ac li.on,
+.ac li:hover {
+  background: var(--hover);
+}
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 11.5px;
+}
+.props {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  bottom: 8px;
+  width: 280px;
+  max-width: calc(100% - 16px);
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.2);
+  z-index: 4;
+}
+.props h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.props h4 {
+  margin: 10px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.prow {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0;
+}
+.prow span {
+  color: var(--muted);
+}
+.prow input,
+.prow select {
+  width: 100%;
+  min-width: 0;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 6px;
+  font: inherit;
+}
+.prow input[type='checkbox'] {
+  width: auto;
+  justify-self: start;
+}
+.prow output {
+  font-variant-numeric: tabular-nums;
+}
+.inline-edit {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 250px;
+  z-index: 6;
+  background: var(--panel);
+  color: var(--text);
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: 14px system-ui, sans-serif;
+}
+.actions button.on {
+  background: var(--on);
+}
+@media (max-width: 640px) {
+  .props {
+    top: auto;
+    height: 55%;
+    width: auto;
+    left: 8px;
+  }
+  .ac {
+    min-width: 0;
   }
 }

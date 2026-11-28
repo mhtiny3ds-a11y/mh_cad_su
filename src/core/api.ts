@@ -51,6 +51,10 @@ export interface ViewHandle {
   zoomWindow(p1: [number, number], p2: [number, number]): void;
   /** Ảnh PNG (data URL) của khung nhìn hiện tại — để AI "nhìn" kết quả. */
   snapshot(): string;
+  /** Thời gian vẽ khung hình gần nhất (ms) và số đối tượng đã vẽ. */
+  renderStats(): Record<string, number>;
+  /** Vẽ lại ngay, trả về thời gian (ms). */
+  redrawNow(): number;
   /** Toạ độ bản vẽ → toạ độ pixel trong trang (clientX, clientY). */
   toClient(p: [number, number]): [number, number];
 }

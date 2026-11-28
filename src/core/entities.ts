@@ -29,6 +29,7 @@ import {
   sub,
 } from './geom';
 import { dimGeometry, dimText, measure } from './dim';
+import { type PatLine, loopsBox, mapPatLine } from './hatch';
 
 interface Base {
   id: number;
@@ -111,13 +112,31 @@ export interface InsertEnt extends Base {
   rot: number;
 }
 
-export type Entity = LineEnt | CircleEnt | ArcEnt | PolylineEnt | TextEnt | DimEnt | InsertEnt;
+export interface HatchEnt extends Base {
+  type: 'HATCH';
+  /** Các vòng biên (đa giác). Đảo được xử lý theo quy tắc chẵn-lẻ. */
+  loops: Vec[][];
+  solid: boolean;
+  /** Tên mẫu (để hiển thị / sửa); hình mẫu thực tế nằm ở lines. */
+  pattern: string;
+  scale: number;
+  angle: number;
+  lines: PatLine[];
+}
+
+/** Điểm (POINT). */
+export interface PointEnt extends Base {
+  type: 'POINT';
+  p: Vec;
+}
+
+export type Entity = LineEnt | CircleEnt | ArcEnt | PolylineEnt | TextEnt | DimEnt | InsertEnt | HatchEnt | PointEnt;
 export type EntityType = Entity['type'];
 /** Đối tượng chưa có id (dùng khi tạo mới). */
 export type NewEntity = Entity extends infer E ? (E extends Entity ? Omit<E, 'id'> : never) : never;
 type AnyEnt = Entity | NewEntity;
 
-export const ENTITY_TYPES: EntityType[] = ['LINE', 'CIRCLE', 'ARC', 'LWPOLYLINE', 'TEXT', 'DIMENSION', 'INSERT'];
+export const ENTITY_TYPES: EntityType[] = ['LINE', 'CIRCLE', 'ARC', 'LWPOLYLINE', 'TEXT', 'DIMENSION', 'INSERT', 'HATCH', 'POINT'];
 
 // ---------- Block ----------
 
@@ -146,7 +165,22 @@ export function placeInBlock<E extends AnyEnt>(e: E, ins: Pick<InsertEnt, 'p' | 
  * Phân rã đối tượng phức (INSERT, DIMENSION) thành đối tượng cơ bản để vẽ, chọn, bắt điểm.
  * Đối tượng cơ bản trả về chính nó.
  */
+// Bộ nhớ đệm: đối tượng là bất biến (mỗi lần sửa tạo đối tượng mới), nên lưu theo chính đối tượng.
+// Với INSERT còn kiểm tra định nghĩa block có đổi không.
+const expandCache = new WeakMap<object, { def: BlockDef | undefined; out: NewEntity[] }>();
+const bboxCache = new WeakMap<object, { def: BlockDef | undefined; b: BBox }>();
+
 export function expand(e: AnyEnt, depth = 0): NewEntity[] {
+  if (e.type !== 'DIMENSION' && e.type !== 'INSERT') return [e as NewEntity];
+  const def = e.type === 'INSERT' ? blockLookup(e.name) : undefined;
+  const c = expandCache.get(e);
+  if (c && c.def === def) return c.out;
+  const out = expandRaw(e, depth);
+  expandCache.set(e, { def, out });
+  return out;
+}
+
+function expandRaw(e: AnyEnt, depth: number): NewEntity[] {
   if (e.type === 'DIMENSION') return dimGeometry(e);
   if (e.type !== 'INSERT') return [e as NewEntity];
   if (depth > 8) return [];
@@ -205,6 +239,10 @@ export function prims(e: AnyEnt): Prim[] {
       const c = textCorners(e);
       return c.map((p, i) => ({ k: 'seg' as const, a: p, b: c[(i + 1) % 4] }));
     }
+    case 'HATCH':
+      return e.loops.flatMap((l) => l.map((p, i) => ({ k: 'seg' as const, a: p, b: l[(i + 1) % l.length] })));
+    case 'POINT':
+      return [{ k: 'seg', a: e.p, b: e.p }];
     default:
       return expand(e).flatMap((x) => (x.type === 'TEXT' ? [] : prims(x)));
   }
@@ -226,7 +264,8 @@ function primIntersections(p: Prim, q: Prim): Vec[] {
 }
 
 export function intersections(e1: AnyEnt, e2: AnyEnt): Vec[] {
-  if (e1.type === 'TEXT' || e2.type === 'TEXT') return [];
+  const noInt = (e: AnyEnt) => e.type === 'TEXT' || e.type === 'HATCH' || e.type === 'POINT';
+  if (noInt(e1) || noInt(e2)) return [];
   const out: Vec[] = [];
   for (const p of prims(e1)) for (const q of prims(e2)) out.push(...primIntersections(p, q));
   return out;
@@ -239,6 +278,18 @@ export function arcEndpoints(e: Pick<ArcEnt, 'c' | 'r' | 'start' | 'end'>): [Vec
 }
 
 export function bbox(e: AnyEnt): BBox {
+  if (e.type === 'INSERT' || e.type === 'DIMENSION' || e.type === 'HATCH') {
+    const def = e.type === 'INSERT' ? blockLookup(e.name) : undefined;
+    const c = bboxCache.get(e);
+    if (c && c.def === def) return c.b;
+    const b = bboxRaw(e);
+    bboxCache.set(e, { def, b });
+    return b;
+  }
+  return bboxRaw(e);
+}
+
+function bboxRaw(e: AnyEnt): BBox {
   const b = emptyBox();
   switch (e.type) {
     case 'LINE':
@@ -260,6 +311,11 @@ export function bbox(e: AnyEnt): BBox {
       break;
     case 'TEXT':
       for (const p of textCorners(e)) boxAdd(b, p);
+      break;
+    case 'HATCH':
+      return loopsBox(e.loops);
+    case 'POINT':
+      boxAdd(b, e.p);
       break;
     default: {
       let u = b;
@@ -290,6 +346,8 @@ export function distanceTo(e: AnyEnt, p: Vec): number {
     return pointInPolygon(p, c) ? 0 : Math.min(...c.map((q, i) => distToSegment(p, q, c[(i + 1) % 4])));
   }
   if (e.type === 'LWPOLYLINE' && e.fill && pointInPolygon(p, e.pts)) return 0;
+  if (e.type === 'HATCH' && e.loops.filter((l) => pointInPolygon(p, l)).length % 2 === 1) return 0;
+  if (e.type === 'POINT') return dist(p, e.p);
   if (isComplex(e)) {
     let best = Infinity;
     for (const x of expand(e)) best = Math.min(best, distanceTo(x, p));
@@ -374,6 +432,11 @@ export function snapPoints(e: AnyEnt): SnapPoint[] {
     case 'DIMENSION':
       for (const p of e.pts) out.push({ p, kind: 'node' });
       break;
+    case 'POINT':
+      out.push({ p: e.p, kind: 'node' });
+      break;
+    case 'HATCH':
+      break;
     case 'INSERT':
       out.push({ p: e.p, kind: 'insert' });
       for (const x of expand(e)) out.push(...snapPoints(x));
@@ -453,7 +516,12 @@ export function gripPoints(e: AnyEnt): Vec[] {
     case 'DIMENSION':
       return [...e.pts];
     case 'INSERT':
+    case 'POINT':
       return [e.p];
+    case 'HATCH': {
+      const b = loopsBox(e.loops);
+      return [[(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2]];
+    }
   }
 }
 
@@ -489,7 +557,10 @@ export function applyGrip<E extends AnyEnt>(e: E, i: number, to: Vec): E {
     }
     case 'TEXT':
     case 'INSERT':
+    case 'POINT':
       return { ...e, p: to };
+    case 'HATCH':
+      return moveEnt(e, sub(to, gripPoints(e)[0]));
     case 'DIMENSION': {
       const pts = [...e.pts];
       pts[i] = to;
@@ -528,7 +599,10 @@ function mapPts<E extends AnyEnt>(e: E, f: PtFn): E {
       return { ...e, c: f(e.c) };
     case 'TEXT':
     case 'INSERT':
+    case 'POINT':
       return { ...e, p: f(e.p) };
+    case 'HATCH':
+      return { ...e, loops: e.loops.map((l) => l.map(f)), lines: e.lines.map((l) => mapPatLine(l, f)) };
   }
   return e;
 }
@@ -546,6 +620,8 @@ export function rotateEnt<E extends AnyEnt>(e: E, base: Vec, angleDeg: number): 
     case 'TEXT':
     case 'INSERT':
       return { ...t, rot: normDeg(t.rot + angleDeg) };
+    case 'HATCH':
+      return { ...t, angle: normDeg(t.angle + angleDeg) };
     case 'DIMENSION':
       return t.kind === 'linear' ? { ...t, rot: normDeg((t.rot ?? 0) + angleDeg) } : t;
   }
@@ -563,6 +639,8 @@ export function scaleEnt<E extends AnyEnt>(e: E, base: Vec, k: number): E {
       return { ...t, h: t.h * a };
     case 'INSERT':
       return { ...t, sx: t.sx * a, sy: t.sy * a };
+    case 'HATCH':
+      return { ...t, scale: t.scale * a };
   }
   return t;
 }
@@ -665,7 +743,19 @@ export function describe(e: Entity): string {
       return `${head} · kích thước ${e.kind} · giá trị ${fmt(measure(e))} · chữ "${dimText(e)}"`;
     case 'INSERT':
       return `${head} · block "${e.name}" tại ${fp(e.p)} · tỉ lệ ${fmt(e.sx)} × ${fmt(e.sy)} · xoay ${fmt(e.rot)}°`;
+    case 'HATCH':
+      return `${head} · mẫu ${e.pattern} · tỉ lệ ${fmt(e.scale)} · góc ${fmt(e.angle)}° · ${e.loops.length} vòng biên · diện tích ${fmt(hatchArea(e))}`;
+    case 'POINT':
+      return `${head} · tại ${fp(e.p)}`;
   }
 }
 
 export { fmt as fmtNum, fp as fmtPoint };
+
+/** Diện tích vùng tô (trừ đảo theo quy tắc chẵn-lẻ). */
+export function hatchArea(e: Pick<HatchEnt, 'loops'>): number {
+  return e.loops.reduce((s, l) => {
+    const depth = e.loops.filter((o) => o !== l && pointInPolygon(l[0], o)).length;
+    return s + (depth % 2 ? -1 : 1) * polyArea(l);
+  }, 0);
+}

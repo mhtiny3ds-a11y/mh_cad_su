@@ -4,15 +4,19 @@ Phần mềm CAD 2D **miễn phí, mã nguồn mở**, chạy ngay trên trình 
 
 👉 Dùng thử: https://mhtiny3ds-a11y.github.io/mh_cad_su/ (sau khi bật GitHub Pages, xem bên dưới)
 
-## Tính năng (v0.2)
+## Tính năng (v0.3)
 
-- Vẽ: đoạn thẳng, đa tuyến, hình chữ nhật, đa giác đều, đường tròn, cung tròn, chữ tiếng Việt
-- Sửa: di chuyển, sao chép, xoay, tỉ lệ, đối xứng, offset, **cắt (TRIM), kéo dài (EXTEND), bo góc (FILLET), vát góc (CHAMFER), bẻ (BREAK), nối (JOIN)**, phá, xoá; **sửa nhanh bằng grip**
+- **Mở file DWG** (AutoCAD 2000–2018) và DXF ngay trên trình duyệt, kéo-thả file vào vùng vẽ
+- Vẽ: đoạn thẳng, đa tuyến, **tường 2 nét (MLINE)**, hình chữ nhật, đa giác đều, đường tròn, cung tròn, elip, điểm, chữ tiếng Việt
+- **Tô vật liệu (HATCH)**: bấm vào trong vùng là tự dò biên, nhận đảo; 12 mẫu (gạch, bê tông, đất, thép…)
+- Sửa: di chuyển, sao chép, xoay, tỉ lệ, đối xứng, offset, **cắt (TRIM), kéo dài (EXTEND), bo góc (FILLET), vát góc (CHAMFER), bẻ (BREAK), nối (JOIN), kéo giãn (STRETCH), mảng (ARRAY)**, phá, xoá; **sửa nhanh bằng grip**
 - **Kích thước**: ngang/đứng, song song, bán kính, đường kính, góc, nối tiếp; chỉnh kiểu kích thước
 - **Block**: tạo, chèn, phá; đọc block từ file DXF
 - **Kiểu đường** (nét đứt, nét trục…) và LTSCALE; **hộp quản lý layer**
 - **In / lưu PDF** theo khổ A4–A0 và tỉ lệ 1:N; xuất SVG
-- Diện tích & chu vi (AREA), đổi thuộc tính (CHPROP, MATCHPROP)
+- Diện tích & chu vi (AREA), đổi thuộc tính (CHPROP, MATCHPROP), **bảng thuộc tính** (Ctrl+1), bấm đúp để sửa chữ, Ctrl+C / Ctrl+V
+- **Gợi ý lệnh khi gõ**, ô nhập động cạnh con trỏ, POLAR 45°
+- Nhanh với bản vẽ lớn (hàng chục nghìn đối tượng)
 - Dòng lệnh quen thuộc: gõ `L`, `C`, `REC`, `M`, `CO`, `O`…; toạ độ `x,y`, `@dx,dy`, `@dài<góc`; gõ số để vẽ theo hướng chuột
 - Bắt điểm (đầu mút, trung điểm, tâm, góc phần tư, giao điểm), ORTHO, lưới
 - Chọn bằng bấm, khung trái→phải (nằm trọn) và phải→trái (chạm khung)
@@ -65,6 +69,12 @@ Xem [ROADMAP.md](ROADMAP.md) cho kế hoạch và [CLAUDE.md](CLAUDE.md) cho quy
 2. Settings → Pages → *Build and deployment* → Source: **GitHub Actions**.
 3. Mỗi lần đẩy lên nhánh `main`, workflow `Deploy GitHub Pages` tự build và đăng.
 4. Khi mua tên miền: Settings → Pages → Custom domain, và đặt biến repo `MHCAD_BASE` = `/`.
+
+## Thư viện bên ngoài
+
+| Thư viện | Dùng để | Giấy phép |
+|---|---|---|
+| [@mlightcad/libredwg-web](https://github.com/mlightcad/libredwg-web) (LibreDWG) | Đọc file DWG | GPL-3.0 |
 
 ## Giấy phép
 

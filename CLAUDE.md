@@ -23,6 +23,11 @@ src/core/      không phụ thuộc DOM, kiểm thử được bằng Vitest
   commands.ts    Registry + CommandDef (params, run, interactive) + runCommand/runInteractive + lệnh cơ bản + tiện ích tham số
   cmds/modify.ts TRIM, EXTEND, FILLET, CHAMFER, BREAK, JOIN, GRIPEDIT, CHPROP, MATCHPROP
   cmds/annotate.ts POLYGON, AREA, DIM*, DIMSTYLE, BLOCK, INSERT, LTSCALE
+  cmds/hatch.ts  HATCH, HATCHEDIT, BOUNDARY, POINT (dò vùng kín khi bấm điểm)
+  cmds/edit.ts   SETPROP, ARRAY, STRETCH, ELLIPSE, MLINE, PASTECLIP
+  hatch.ts       mẫu tô, cắt nét mẫu theo biên, chia hình thang, findBoundary
+  dwg.ts         DWG → DXF bằng LibreDWG WebAssembly (chạy trong src/ui/dwg-worker.ts)
+  spatial.ts     chỉ mục lưới cho rê chuột / bắt điểm
   registry.ts    createRegistry(): gom mọi lệnh — lệnh mới phải được thêm vào đây
   offset.ts      OFFSET
   dxf.ts         đọc/ghi DXF ASCII (R12 khi ghi), giải mã bảng mã
@@ -31,7 +36,8 @@ src/core/      không phụ thuộc DOM, kiểm thử được bằng Vitest
   api.ts         window.mhcad (cho script / AI)
 src/ui/        giao diện
   app.ts         bộ điều khiển: chuột, phím, dòng lệnh, bắt điểm, cài đặt IO cho lệnh tương tác
-  view.ts        Viewport + vẽ Canvas 2D
+  view.ts        Viewport + vẽ Canvas 2D theo lô Path2D (KHÔNG dùng closePath: rất chậm trong Chromium)
+  props.ts       bảng thuộc tính (Ctrl+1)
   icons.ts       biểu tượng SVG tự vẽ
 ```
 

@@ -10,17 +10,20 @@ import {
   type Registry,
   runInteractive,
 } from '../core/commands';
-import { type NewEntity, type SnapKind, applyGrip, bbox, distanceTo, gripPoints, insideBox, intersections, perpendicularFoot, snapPoints, touchesBox } from '../core/entities';
+import { type NewEntity, type SnapKind, applyGrip, moveEnt, bbox, distanceTo, gripPoints, insideBox, intersections, perpendicularFoot, snapPoints, touchesBox } from '../core/entities';
 import { normDeg } from '../core/entities';
 import { parseInput } from '../core/input';
 import { type MhcadApi, createApi } from '../core/api';
 import { decodeDxfBytes, readDxf, writeDxf } from '../core/dxf';
 import { createRegistry } from '../core/registry';
+import { GridIndex } from '../core/spatial';
+import { isDwg } from '../core/dwg';
+import { renderProps } from './props';
 import { PAPERS, plotSvg } from '../core/svg';
 import { type Theme, Viewport, aciToCss, render } from './view';
 import { ICONS, LOGO } from './icons';
 
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 
 const THEMES: Record<'dark' | 'light', Theme> = {
   dark: {
@@ -84,10 +87,10 @@ const store = {
 };
 
 const TOOLS = [
-  'LINE', 'PLINE', 'RECTANG', 'POLYGON', 'CIRCLE', 'ARC', 'TEXT', '|',
-  'MOVE', 'COPY', 'ROTATE', 'SCALE', 'MIRROR', 'OFFSET', 'TRIM', 'EXTEND', 'FILLET', 'CHAMFER', 'BREAK', 'JOIN', 'EXPLODE', 'ERASE', '|',
+  'LINE', 'PLINE', 'MLINE', 'RECTANG', 'POLYGON', 'CIRCLE', 'ARC', 'ELLIPSE', 'TEXT', '|',
+  'MOVE', 'COPY', 'ROTATE', 'SCALE', 'MIRROR', 'STRETCH', 'ARRAY', 'OFFSET', 'TRIM', 'EXTEND', 'FILLET', 'CHAMFER', 'BREAK', 'JOIN', 'EXPLODE', 'ERASE', '|',
   'DIMLINEAR', 'DIMALIGNED', 'DIMRADIUS', 'DIMANGULAR', 'DIMCONTINUE', '|',
-  'BLOCK', 'INSERT', 'MATCHPROP', '|', 'DIST', 'AREA', 'LIST',
+  'HATCH', 'BLOCK', 'INSERT', 'MATCHPROP', '|', 'DIST', 'AREA', 'LIST',
 ];
 
 const TOOL_LABEL: Record<string, string> = {
@@ -122,6 +125,11 @@ const TOOL_LABEL: Record<string, string> = {
   INSERT: 'Chèn block (I)',
   MATCHPROP: 'Sao chép thuộc tính (MA)',
   AREA: 'Diện tích (AA)',
+  HATCH: 'Tô vật liệu (H)',
+  ELLIPSE: 'Elip (EL)',
+  MLINE: 'Tường 2 nét (ML)',
+  STRETCH: 'Kéo giãn (S)',
+  ARRAY: 'Mảng chữ nhật / tròn (AR)',
   LIST: 'Thông tin đối tượng (LI)',
 };
 
@@ -145,6 +153,14 @@ export class App {
   private showGrid = true;
   private snapOn = true;
   private orthoOn = false;
+  private polarOn = true;
+  private polarInc = 45;
+  /** Tia dóng theo góc POLAR đang bắt (để vẽ đường gióng). */
+  private track: { from: Vec; angle: number } | null = null;
+  private propsOpen = false;
+  private propsSig = '';
+  private acItems: string[] = [];
+  private acIdx = -1;
   private cursorScreen: Vec | null = null;
   private hover: number | null = null;
   private snap: { p: Vec; kind: SnapKind } | null = null;
@@ -153,6 +169,10 @@ export class App {
   private touches = new Map<number, Vec>();
   private pinch: { d: number; mid: Vec } | null = null;
   private hotGrip: { id: number; i: number } | null = null;
+  private index: GridIndex | null = null;
+  private lastRenderMs = 0;
+  private lastStats: Record<string, number> = { drawn: 0, total: 0 };
+  private dwgWorker: Worker | null = null;
   private spaceDown = false;
   private pending: Pending | null = null;
   private running: Promise<void> | null = null;
@@ -192,6 +212,11 @@ export class App {
         zoomExtents: () => this.zoomExtents(),
         zoomWindow: (a, b) => this.zoomWindow(a, b),
         snapshot: () => this.snapshot(),
+        renderStats: () => ({ ms: this.lastRenderMs, ...this.lastStats }),
+        redrawNow: () => {
+          this.draw();
+          return this.lastRenderMs;
+        },
         toClient: (p) => {
           const r = this.canvas.getBoundingClientRect();
           const q = this.vp.toScreen(p);
@@ -213,7 +238,7 @@ export class App {
         <div class="brand">${LOGO}<span>MHCAD</span><small>v${VERSION}</small></div>
         <div class="actions">
           <button data-act="new" title="Bản vẽ mới">${ICONS.new}</button>
-          <button data-act="open" title="Mở file DXF">${ICONS.open}</button>
+          <button data-act="open" title="Mở file DXF / DWG (hoặc kéo-thả vào vùng vẽ)">${ICONS.open}</button>
           <button data-act="save" title="Lưu ra file DXF (Ctrl+S)">${ICONS.save}</button>
           <span class="sep"></span>
           <button data-act="undo" title="Hoàn tác (Ctrl+Z)">${ICONS.undo}</button>
@@ -226,6 +251,7 @@ export class App {
         <div class="actions right">
           <label class="layer" title="Layer hiện hành (đang chọn đối tượng: chuyển chúng sang layer này)"><span class="dot"></span><select id="layer"></select></label>
           <button data-act="layers" title="Quản lý layer (LA)">${ICONS.layers}</button>
+          <button data-act="props" title="Bảng thuộc tính (Ctrl+1)">${ICONS.props}</button>
           <button data-act="theme" title="Đổi nền sáng/tối">${ICONS.theme}</button>
           <button data-act="help" title="Trợ giúp (F1)">${ICONS.help}</button>
         </div>
@@ -233,9 +259,14 @@ export class App {
       <nav class="toolbar" aria-label="Công cụ">
         ${TOOLS.map((t) => (t === '|' ? '<span class="sep"></span>' : `<button data-cmd="${t}" title="${TOOL_LABEL[t]}">${ICONS[t]}</button>`)).join('')}
       </nav>
-      <main class="stage"><canvas id="cv" aria-label="Vùng vẽ"></canvas></main>
+      <main class="stage"><canvas id="cv" aria-label="Vùng vẽ"></canvas>
+        <div class="dyn" id="dyn" hidden></div>
+        <input class="inline-edit" id="inline" hidden aria-label="Sửa chữ" />
+        <aside class="props" id="props" hidden aria-label="Thuộc tính"></aside>
+      </main>
       <section class="cmdline">
         <div class="history" id="history" aria-live="polite"></div>
+        <ul class="ac" id="ac" role="listbox" hidden></ul>
         <div class="prompt-row">
           <span class="prompt" id="prompt">Lệnh:</span>
           <input id="cmd" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Gõ lệnh (L, C, REC, M...) hoặc toạ độ" />
@@ -246,11 +277,12 @@ export class App {
         <span class="toggles">
           <button data-toggle="snap" title="Bắt điểm (F3)">SNAP</button>
           <button data-toggle="ortho" title="Vuông góc (F8)">ORTHO</button>
+          <button data-toggle="polar" title="Dóng theo góc 45° (F10)">POLAR</button>
           <button data-toggle="grid" title="Lưới (F7)">GRID</button>
         </span>
         <span class="units" id="units">mm</span>
       </footer>
-      <input type="file" id="file" accept=".dxf,.DXF" hidden />
+      <input type="file" id="file" accept=".dxf,.DXF,.dwg,.DWG" hidden />
       <dialog id="help"></dialog>
       <dialog id="layers"></dialog>
       <dialog id="plot"></dialog>
@@ -273,6 +305,7 @@ export class App {
     this.resize();
 
     this.doc.onChange(() => {
+      this.index = null;
       this.refreshLayers();
       this.redraw();
       clearTimeout(this.saveTimer);
@@ -301,7 +334,7 @@ export class App {
       }),
     );
     this.root.querySelectorAll<HTMLButtonElement>('[data-toggle]').forEach((b) =>
-      b.addEventListener('click', () => this.toggle(b.dataset.toggle as 'snap' | 'ortho' | 'grid')),
+      b.addEventListener('click', () => this.toggle(b.dataset.toggle as 'snap' | 'ortho' | 'grid' | 'polar')),
     );
     this.layerSel.addEventListener('change', () => {
       try {
@@ -322,11 +355,55 @@ export class App {
       const f = this.fileInput.files?.[0];
       this.fileInput.value = '';
       if (!f) return;
+      await this.openFile(f);
+    });
+    // Kéo-thả file DXF/DWG vào vùng vẽ.
+    const stage = this.root.querySelector<HTMLElement>('.stage')!;
+    stage.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      stage.classList.add('drop');
+    });
+    stage.addEventListener('dragleave', () => stage.classList.remove('drop'));
+    stage.addEventListener('drop', (e) => {
+      e.preventDefault();
+      stage.classList.remove('drop');
+      const f = e.dataTransfer?.files?.[0];
+      if (f) void this.openFile(f);
+    });
+  }
+
+  /** Chuyển DWG → DXF trong Web Worker (LibreDWG WebAssembly, nạp khi cần). */
+  private dwgToDxf(bytes: Uint8Array): Promise<string> {
+    if (!this.dwgWorker) this.dwgWorker = new Worker(new URL('./dwg-worker.ts', import.meta.url), { type: 'module' });
+    const w = this.dwgWorker;
+    const id = Math.random();
+    return new Promise((resolve, reject) => {
+      const onMsg = (ev: MessageEvent<{ id: number; dxf?: string; error?: string }>) => {
+        if (ev.data.id !== id) return;
+        w.removeEventListener('message', onMsg);
+        if (ev.data.error) reject(new Error(ev.data.error));
+        else resolve(ev.data.dxf!);
+      };
+      w.addEventListener('message', onMsg);
+      w.addEventListener('error', (e) => reject(new Error(e.message || 'Lỗi khi nạp bộ đọc DWG')), { once: true });
+      w.postMessage({ id, bytes }, [bytes.buffer]);
+    });
+  }
+
+  private async openFile(f: File): Promise<void> {
+    {
       try {
-        const text = decodeDxfBytes(await f.arrayBuffer());
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        let text: string;
+        if (isDwg(bytes)) {
+          this.print(`Đang đọc DWG ${f.name}… (lần đầu cần tải bộ đọc khoảng 8 MB)`);
+          const t0 = performance.now();
+          text = await this.dwgToDxf(bytes);
+          this.print(`Đã chuyển DWG trong ${Math.round(performance.now() - t0)} ms`);
+        } else text = decodeDxfBytes(bytes);
         const r = readDxf(text);
         this.doc.load(r.data);
-        this.fileName = f.name.replace(/\.dxf$/i, '') + '.dxf';
+        this.fileName = f.name.replace(/\.(dxf|dwg)$/i, '') + '.dxf';
         this.selection.clear();
         this.zoomExtents();
         this.print(`Đã mở ${f.name}: ${r.data.entities.length} đối tượng, ${r.data.layers.length} layer.`);
@@ -335,7 +412,7 @@ export class App {
       } catch (e) {
         this.print(`Không mở được file: ${(e as Error).message}`);
       }
-    });
+    }
   }
 
   private action(act: string): void {
@@ -377,6 +454,9 @@ export class App {
       case 'layers':
         this.showLayers();
         return;
+      case 'props':
+        this.toggleProps();
+        break;
       case 'plot':
         this.showPlot();
         return;
@@ -387,18 +467,26 @@ export class App {
     this.input.focus();
   }
 
-  private toggle(k: 'snap' | 'ortho' | 'grid'): void {
+  private toggle(k: 'snap' | 'ortho' | 'grid' | 'polar'): void {
     if (k === 'snap') this.snapOn = !this.snapOn;
-    if (k === 'ortho') this.orthoOn = !this.orthoOn;
+    if (k === 'ortho') {
+      this.orthoOn = !this.orthoOn;
+      if (this.orthoOn) this.polarOn = false;
+    }
+    if (k === 'polar') {
+      this.polarOn = !this.polarOn;
+      if (this.polarOn) this.orthoOn = false;
+    }
     if (k === 'grid') this.showGrid = !this.showGrid;
-    this.print(`${k.toUpperCase()} ${(k === 'snap' ? this.snapOn : k === 'ortho' ? this.orthoOn : this.showGrid) ? 'bật' : 'tắt'}`);
+    const v = { snap: this.snapOn, ortho: this.orthoOn, grid: this.showGrid, polar: this.polarOn }[k];
+    this.print(`${k.toUpperCase()} ${v ? 'bật' : 'tắt'}`);
     this.refreshToggles();
     this.redraw();
     this.input.focus();
   }
 
   private refreshToggles(): void {
-    const on = { snap: this.snapOn, ortho: this.orthoOn, grid: this.showGrid };
+    const on = { snap: this.snapOn, ortho: this.orthoOn, grid: this.showGrid, polar: this.polarOn };
     this.root.querySelectorAll<HTMLButtonElement>('[data-toggle]').forEach((b) => {
       b.classList.toggle('on', on[b.dataset.toggle as keyof typeof on]);
       b.setAttribute('aria-pressed', String(on[b.dataset.toggle as keyof typeof on]));
@@ -458,7 +546,8 @@ export class App {
       const b = this.pending.tempBase ?? this.pending.base!;
       preview.push({ type: 'LINE', a: b, b: cursorW, layer: '0' });
     }
-    render(this.g, {
+    const t0 = performance.now();
+    const rs = {
       doc: this.doc,
       vp: this.vp,
       theme: THEMES[this.themeName],
@@ -473,7 +562,13 @@ export class App {
       grips: !this.running,
       hotGrip: this.hotGrip,
       pickSize: 5,
-    });
+      track: hideCursor ? null : this.track,
+    } as Parameters<typeof render>[1];
+    render(this.g, rs);
+    if (!hideCursor) this.updateDyn(cursorW);
+    if (this.propsOpen) this.refreshProps();
+    this.lastRenderMs = performance.now() - t0;
+    if (rs.stats) this.lastStats = rs.stats;
   }
 
   private snapshot(): string {
@@ -596,6 +691,20 @@ export class App {
       if (e.button === 1 && e.detail === 2) this.zoomExtents();
     });
 
+    cv.addEventListener('dblclick', (e) => {
+      if (this.running || this.hover === null) return;
+      const ent = this.doc.get(this.hover);
+      if (!ent) return;
+      if (ent.type === 'TEXT' || ent.type === 'DIMENSION') this.editTextInline(ent.id);
+      else {
+        this.selection.clear();
+        this.selection.add(ent.id);
+        if (!this.propsOpen) this.toggleProps();
+        this.redraw();
+      }
+      void e;
+    });
+
     cv.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       this.submit('');
@@ -608,9 +717,23 @@ export class App {
     if (this.snap) return this.snap.p;
     let w = this.vp.toWorld(this.cursorScreen[0], this.cursorScreen[1]);
     const base = this.pending?.tempBase ?? this.pending?.base;
+    this.track = null;
     if (this.orthoOn && base && this.pending?.kind !== 'selection') {
       const d = sub(w, base);
       w = Math.abs(d[0]) >= Math.abs(d[1]) ? [w[0], base[1]] : [base[0], w[1]];
+    } else if (this.polarOn && base && this.pending && this.pending.kind !== 'selection' && this.pending.kind !== 'entity') {
+      const d = sub(w, base);
+      const L = len(d);
+      if (L * this.vp.scale > 10) {
+        const ang = rad2deg(angleOf(d));
+        const near = Math.round(ang / this.polarInc) * this.polarInc;
+        // Lệch không quá ~10 px tính tại vị trí con trỏ thì bắt vào tia.
+        const off = L * Math.sin(Math.abs(ang - near) * (Math.PI / 180)) * this.vp.scale;
+        if (off < 10) {
+          w = polar(base, near * (Math.PI / 180), L * Math.cos((ang - near) * (Math.PI / 180)));
+          this.track = { from: base, angle: near };
+        }
+      }
     }
     return w;
   }
@@ -619,9 +742,12 @@ export class App {
     if (!this.cursorScreen) return;
     const w = this.vp.toWorld(this.cursorScreen[0], this.cursorScreen[1]);
     const tol = 6 / this.vp.scale;
-    const near = this.doc
-      .visible()
+    if (!this.index) this.index = new GridIndex(this.doc.visible(), this.doc.extents());
+    const r2 = 12 / this.vp.scale;
+    const near = this.index
+      .query({ minX: w[0] - r2, minY: w[1] - r2, maxX: w[0] + r2, maxY: w[1] + r2 })
       .filter((e) => {
+        if (this.doc.layers.get(e.layer)?.visible === false || this.doc.get(e.id) !== e) return false;
         const b = bbox(e);
         return w[0] >= b.minX - tol * 2 && w[0] <= b.maxX + tol * 2 && w[1] >= b.minY - tol * 2 && w[1] <= b.maxY + tol * 2;
       });
@@ -754,6 +880,12 @@ export class App {
       } else if (e.key === 'F7') {
         e.preventDefault();
         this.toggle('grid');
+      } else if (e.key === 'F10') {
+        e.preventDefault();
+        this.toggle('polar');
+      } else if (mod && e.key === '1') {
+        e.preventDefault();
+        this.toggleProps();
       } else if (e.key === 'F8') {
         e.preventDefault();
         this.toggle('ortho');
@@ -763,6 +895,13 @@ export class App {
       } else if (mod && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
         e.preventDefault();
         this.redo();
+      } else if (mod && e.key.toLowerCase() === 'c' && !this.hasTextSelection()) {
+        if (!this.selection.size) return;
+        e.preventDefault();
+        this.copySelection();
+      } else if (mod && e.key.toLowerCase() === 'v' && document.activeElement === this.input && !this.input.value) {
+        e.preventDefault();
+        void this.pasteClip();
       } else if (mod && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         this.showPlot();
@@ -793,12 +932,34 @@ export class App {
       if (e.key === ' ') this.spaceDown = false;
     });
 
+    this.input.addEventListener('input', () => {
+      this.updateAutocomplete();
+      this.updateDyn(this.cursorScreen ? this.effectivePoint() : null);
+    });
     this.input.addEventListener('keydown', (e) => {
+      const acOpen = this.acItems.length > 0;
+      if (acOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+        e.preventDefault();
+        const n = this.acItems.length;
+        this.acIdx = e.key === 'ArrowDown' ? (this.acIdx + 1) % n : (this.acIdx - 1 + n) % n;
+        this.renderAutocomplete();
+        return;
+      }
+      if (acOpen && e.key === 'Tab') {
+        e.preventDefault();
+        this.input.value = this.acItems[Math.max(0, this.acIdx)];
+        this.closeAutocomplete();
+        return;
+      }
       if (e.key === 'Enter' || (e.key === ' ' && !(this.pending?.kind === 'string' && this.pending.spaces))) {
         e.preventDefault();
-        const v = this.input.value;
+        let v = this.input.value;
+        if (acOpen && this.acIdx >= 0) v = this.acItems[this.acIdx];
+        this.closeAutocomplete();
         this.input.value = '';
         this.submit(v);
+      } else if (e.key === 'Escape') {
+        this.closeAutocomplete();
       } else if (e.key === 'ArrowUp' && !this.pending) {
         e.preventDefault();
         if (!this.cmdHistory.length) return;
@@ -1076,6 +1237,203 @@ export class App {
     }
   }
 
+  // ---------- Sao chép / dán ----------
+
+  private hasTextSelection(): boolean {
+    const a = document.activeElement;
+    if (a instanceof HTMLInputElement) return a.selectionStart !== a.selectionEnd;
+    return !!window.getSelection()?.toString();
+  }
+
+  private copySelection(): void {
+    const ents = [...this.selection].map((id) => this.doc.get(id)).filter((e): e is NonNullable<typeof e> => !!e);
+    if (!ents.length) return;
+    const b = ents.map(bbox).reduce((a, x) => ({ minX: Math.min(a.minX, x.minX), minY: Math.min(a.minY, x.minY), maxX: 0, maxY: 0 }));
+    const names = new Set<string>();
+    const collect = (list: { type: string; name?: string }[]) => {
+      for (const e of list)
+        if (e.type === 'INSERT' && e.name && !names.has(e.name)) {
+          names.add(e.name);
+          collect(this.doc.blocks.get(e.name)?.ents ?? []);
+        }
+    };
+    collect(ents);
+    const data = {
+      base: [b.minX, b.minY],
+      ents: ents.map(({ id: _id, ...rest }) => rest),
+      blocks: [...names].map((n) => this.doc.blocks.get(n)).filter(Boolean),
+    };
+    store.set('mhcad.clip', JSON.stringify(data));
+    this.print(`Đã sao chép ${ents.length} đối tượng (Ctrl+V để dán)`);
+  }
+
+  private async pasteClip(): Promise<void> {
+    const raw = store.get('mhcad.clip');
+    if (!raw) return this.print('Bộ nhớ tạm trống');
+    const data = JSON.parse(raw) as { base: Vec; ents: NewEntity[] };
+    if (this.running) {
+      this.cancel();
+      await this.running;
+    }
+    this.echo('PASTECLIP', true);
+    this.launch('PASTECLIP', async () => {
+      const to = await this.io.getPoint('Điểm dán', {
+        preview: (c) => data.ents.map((e) => moveEnt(e, sub(c, data.base))),
+      });
+      if (Array.isArray(to)) this.print(this.api.run('PASTECLIP', { data: raw, from: data.base, to }).message!);
+    });
+  }
+
+  // ---------- Gợi ý lệnh, nhập động, thuộc tính, sửa chữ ----------
+
+  private updateAutocomplete(): void {
+    const t = this.input.value.trim().toUpperCase();
+    if (this.pending || !t || /[\s,@<]/.test(t) || /^[-+\d.]/.test(t)) return this.closeAutocomplete();
+    const out: { name: string; score: number }[] = [];
+    for (const c of this.reg.list()) {
+      const al = (c.aliases ?? []).map((a) => a.toUpperCase());
+      let score = -1;
+      if (al.includes(t)) score = 0;
+      else if (c.name === t) score = 1;
+      else if (c.name.startsWith(t)) score = 2;
+      else if (al.some((a) => a.startsWith(t))) score = 3;
+      else if (t.length >= 3 && c.name.includes(t)) score = 4;
+      if (score >= 0) out.push({ name: c.name, score });
+    }
+    for (const extra of ['PLOT', 'LAYERS', 'NEW', 'OPEN', 'SAVE', 'UNDO', 'REDO', 'HELP'])
+      if (extra.startsWith(t) && !out.some((o) => o.name === extra)) out.push({ name: extra, score: 5 });
+    out.sort((a, b) => a.score - b.score || a.name.localeCompare(b.name));
+    this.acItems = out.slice(0, 8).map((o) => o.name);
+    this.acIdx = -1;
+    this.renderAutocomplete();
+  }
+
+  private renderAutocomplete(): void {
+    const el = this.root.querySelector<HTMLUListElement>('#ac')!;
+    if (!this.acItems.length) {
+      el.hidden = true;
+      return;
+    }
+    el.innerHTML = this.acItems
+      .map((n, i) => {
+        const d = this.reg.resolve(n);
+        const al = d?.aliases?.length ? ` <span class="muted">${d.aliases.slice(0, 3).join(', ')}</span>` : '';
+        return `<li role="option" data-i="${i}" class="${i === this.acIdx ? 'on' : ''}" aria-selected="${i === this.acIdx}"><b>${n}</b>${al}<small>${escapeHtml(d?.desc ?? '')}</small></li>`;
+      })
+      .join('');
+    el.hidden = false;
+    el.querySelectorAll<HTMLLIElement>('li').forEach((li) =>
+      li.addEventListener('mousedown', (ev) => {
+        ev.preventDefault();
+        const name = this.acItems[Number(li.dataset.i)];
+        this.closeAutocomplete();
+        this.input.value = '';
+        this.submit(name);
+      }),
+    );
+  }
+
+  private closeAutocomplete(): void {
+    this.acItems = [];
+    this.acIdx = -1;
+    const el = this.root.querySelector<HTMLUListElement>('#ac');
+    if (el) el.hidden = true;
+  }
+
+  private static SNAP_NAME: Record<string, string> = {
+    end: 'Điểm cuối',
+    mid: 'Trung điểm',
+    center: 'Tâm',
+    quad: 'Góc phần tư',
+    int: 'Giao điểm',
+    perp: 'Vuông góc',
+    node: 'Điểm',
+    insert: 'Điểm chèn',
+    near: 'Gần nhất',
+  };
+
+  /** Ô nhập động cạnh con trỏ: lời nhắc, độ dài/góc, tên điểm bắt, chữ đang gõ. */
+  private updateDyn(w: Vec | null): void {
+    const el = this.root.querySelector<HTMLElement>('#dyn');
+    if (!el) return;
+    const pd = this.pending;
+    if (!this.cursorScreen || !w || (!pd && !this.input.value)) {
+      el.hidden = true;
+      return;
+    }
+    const parts: string[] = [];
+    if (pd) parts.push(`<span class="p">${escapeHtml(pd.msg)}</span>`);
+    const base = pd?.tempBase ?? pd?.base;
+    if (base && pd && pd.kind !== 'selection' && pd.kind !== 'entity') {
+      const d = sub(w, base);
+      parts.push(`<span class="v">${fmt(len(d))}</span><span class="v">${fmt((rad2deg(angleOf(d)) + 360) % 360)}°</span>`);
+    } else if (pd && pd.kind === 'point') parts.push(`<span class="v">${fmt(w[0])}, ${fmt(w[1])}</span>`);
+    if (this.snap) parts.push(`<span class="s">${App.SNAP_NAME[this.snap.kind] ?? this.snap.kind}</span>`);
+    else if (this.track) parts.push(`<span class="s">Polar ${this.track.angle}°</span>`);
+    if (this.input.value) parts.push(`<span class="t">${escapeHtml(this.input.value)}</span>`);
+    el.innerHTML = parts.join('');
+    el.hidden = false;
+    const x = Math.min(this.cursorScreen[0] + 18, this.vp.w - el.offsetWidth - 6);
+    const y = Math.min(this.cursorScreen[1] + 22, this.vp.h - el.offsetHeight - 6);
+    el.style.transform = `translate(${Math.max(4, x)}px, ${Math.max(4, y)}px)`;
+  }
+
+  private toggleProps(): void {
+    this.propsOpen = !this.propsOpen;
+    const el = this.root.querySelector<HTMLElement>('#props')!;
+    el.hidden = !this.propsOpen;
+    this.propsSig = '';
+    if (this.propsOpen) this.refreshProps();
+    this.root.querySelector('[data-act="props"]')?.classList.toggle('on', this.propsOpen);
+  }
+
+  private refreshProps(): void {
+    const el = this.root.querySelector<HTMLElement>('#props')!;
+    // Dựng lại chỉ khi lựa chọn hoặc đối tượng thay đổi (đối tượng bất biến → so sánh tham chiếu).
+    const ids = [...this.selection];
+    const sig = ids.length + ':' + ids.slice(0, 50).map((id) => `${id}@${objId(this.doc.get(id))}`).join(',') + '|' + this.doc.entities.size + '|' + this.doc.layers.size;
+    if (sig === this.propsSig) return;
+    if (el.contains(document.activeElement) && document.activeElement !== el) return; // đang gõ trong bảng
+    this.propsSig = sig;
+    renderProps(el, this.doc, ids, (cmd, args) => {
+      this.tryRun(cmd, args);
+      // Bỏ con trỏ khỏi ô vừa sửa để bảng được dựng lại với giá trị mới.
+      if (el.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
+      this.propsSig = '';
+      this.redraw();
+    });
+  }
+
+  /** Sửa chữ tại chỗ (bấm đúp vào TEXT / kích thước). */
+  private editTextInline(id: number): void {
+    const e = this.doc.get(id);
+    if (!e || (e.type !== 'TEXT' && e.type !== 'DIMENSION')) return;
+    const inp = this.root.querySelector<HTMLInputElement>('#inline')!;
+    const b = bbox(e);
+    const q = this.vp.toScreen([b.minX, b.maxY]);
+    inp.value = e.type === 'TEXT' ? e.text : (e.text ?? '<>');
+    inp.hidden = false;
+    inp.style.transform = `translate(${Math.max(4, Math.min(q[0], this.vp.w - 260))}px, ${Math.max(4, q[1] - 6)}px)`;
+    inp.focus();
+    inp.select();
+    const done = (ok: boolean) => {
+      inp.hidden = true;
+      inp.onkeydown = null;
+      inp.onblur = null;
+      if (ok && inp.value !== (e.type === 'TEXT' ? e.text : (e.text ?? '<>'))) {
+        if (e.type === 'TEXT' && !inp.value.trim()) this.print('Nội dung chữ không được rỗng');
+        else this.tryRun('SETPROP', { ids: [id], set: { text: e.type === 'DIMENSION' && inp.value === '<>' ? '' : inp.value } });
+      }
+      this.input.focus();
+    };
+    inp.onkeydown = (ev) => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') done(true);
+      else if (ev.key === 'Escape') done(false);
+    };
+    inp.onblur = () => done(true);
+  }
+
   // ---------- Quản lý layer ----------
 
   private showLayers(): void {
@@ -1300,4 +1658,14 @@ const fmt = (n: number) => {
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+}
+
+// Mã nhận dạng ổn định cho từng đối tượng (để biết đối tượng đã bị thay bằng bản mới chưa).
+const objIds = new WeakMap<object, number>();
+let objSeq = 0;
+function objId(o: object | undefined): number {
+  if (!o) return 0;
+  let v = objIds.get(o);
+  if (v === undefined) objIds.set(o, (v = ++objSeq));
+  return v;
 }

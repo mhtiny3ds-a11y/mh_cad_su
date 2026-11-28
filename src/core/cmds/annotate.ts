@@ -111,7 +111,7 @@ const AREA: CommandDef = {
     };
   },
   async interactive(ctx, io) {
-    const first = await io.getPoint('Điểm đầu tiên [Object]', { keywords: ['Object'] });
+    const first = await io.getPoint('Điểm đầu tiên', { keywords: ['Object'] });
     if (first === 'Object') {
       const h = await io.getEntity('Chọn đối tượng kín');
       if (h && typeof h !== 'string') io.print(AREA.run(ctx, { ids: [h.id] }).message!);

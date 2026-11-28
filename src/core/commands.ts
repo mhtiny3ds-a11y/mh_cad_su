@@ -844,7 +844,7 @@ const ZOOM: CommandDef = {
     return {};
   },
   async interactive(ctx, io) {
-    const p = await io.getPoint('Góc khung hoặc [Extents]', { allowNone: true, keywords: ['Extents', 'Window'] });
+    const p = await io.getPoint('Góc khung', { allowNone: true, keywords: ['Extents', 'Window'] });
     if (p === null || p === 'Extents') return void ZOOM.run(ctx, {});
     let a: Vec | string | null = p;
     if (p === 'Window') a = await io.getPoint('Góc thứ nhất');

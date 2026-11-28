@@ -182,7 +182,7 @@ const FILLET: CommandDef = {
   },
   async interactive(ctx, io) {
     for (;;) {
-      const h1 = await io.getEntity(`Chọn đường thứ nhất [Radius] (R hiện tại = ${filletR})`, { keywords: ['Radius'] });
+      const h1 = await io.getEntity(`Chọn đường thứ nhất (R hiện tại = ${filletR})`, { keywords: ['Radius'] });
       if (!h1) return;
       if (typeof h1 === 'string') {
         const r = await io.getDistance('Bán kính bo', { def: filletR });
@@ -232,7 +232,7 @@ const CHAMFER: CommandDef = {
     return { ids: out };
   },
   async interactive(ctx, io) {
-    const h1 = await io.getEntity(`Chọn đường thứ nhất [Distance] (vát ${chamD1} × ${chamD2})`, { keywords: ['Distance'] });
+    const h1 = await io.getEntity(`Chọn đường thứ nhất (vát ${chamD1} × ${chamD2})`, { keywords: ['Distance'] });
     if (!h1) return;
     if (typeof h1 === 'string') {
       const a = await io.getDistance('Khoảng vát thứ nhất', { def: chamD1 });
@@ -291,7 +291,7 @@ const BREAK: CommandDef = {
   async interactive(ctx, io) {
     const h = await io.getEntity('Chọn đối tượng (điểm bấm là điểm bẻ thứ nhất)');
     if (!h || typeof h === 'string') return;
-    const p2 = await io.getPoint('Điểm bẻ thứ hai (Enter = bẻ tại một điểm) [First]', { allowNone: true, keywords: ['First'] });
+    const p2 = await io.getPoint('Điểm bẻ thứ hai (Enter = bẻ tại một điểm)', { allowNone: true, keywords: ['First'] });
     let p1: Vec = h.p;
     let second: Vec | string | null = p2;
     if (p2 === 'First') {

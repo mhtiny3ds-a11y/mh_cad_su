@@ -6,6 +6,8 @@
 
 import { type Vec, add, deg2rad, dist, mul, polar, sub } from './geom';
 import { type BlockDef, type DimEnt, type NewEntity, expand } from './entities';
+import { type PatLine, hatchSegments, trapezoids } from './hatch';
+import { offsetPolyline } from './offset';
 import type { DrawingData, Layer } from './document';
 import { BUILTIN_LINETYPES } from './document';
 import { DEFAULT_DIMSTYLE } from './dim';
@@ -90,10 +92,20 @@ export function writeDxf(data: DrawingData): string {
   // Kích thước → block hình vẽ ẩn danh *D1, *D2… để phần mềm khác hiển thị đúng.
   const dimBlocks: BlockDef[] = [];
   const dimBlockName = new Map<object, string>();
+  let hatchN = 0;
   for (const e of data.entities)
     if (e.type === 'DIMENSION') {
       const name = `*D${dimBlocks.length + 1}`;
       dimBlocks.push({ name, base: [0, 0], ents: expand(e) });
+      dimBlockName.set(e, name);
+    } else if (e.type === 'HATCH') {
+      // R12 không có HATCH: ghi hình vẽ của vùng tô vào block ẩn danh *X (giống cách AutoCAD R12 làm).
+      const name = `*X${++hatchN}`;
+      const keep = { layer: '0' };
+      const ents: NewEntity[] = e.solid
+        ? trapezoids(e.loops).map((q) => ({ type: 'LWPOLYLINE', pts: q, closed: true, fill: true, ...keep }))
+        : (hatchSegments(e.loops, e.lines) ?? []).map(([a, b]) => ({ type: 'LINE', a, b, ...keep }));
+      dimBlocks.push({ name, base: [0, 0], ents });
       dimBlockName.set(e, name);
     }
 
@@ -220,6 +232,15 @@ export function writeDxf(data: DrawingData): string {
         if (e.sx !== 1) g(41, e.sx);
         if (e.sy !== 1) g(42, e.sy);
         if (e.rot) g(50, e.rot);
+        break;
+      case 'POINT':
+        head('POINT');
+        pt(10, e.p);
+        break;
+      case 'HATCH':
+        head('INSERT');
+        g(2, dimBlockName.get(e) ?? '*X0');
+        pt(10, [0, 0]);
         break;
       case 'DIMENSION': {
         head('DIMENSION');
@@ -557,6 +578,77 @@ export function readDxf(text: string): DxfReadResult {
       }
       case 'ATTDEF':
         return; // định nghĩa thuộc tính trong block: giá trị nằm ở ATTRIB của INSERT
+      case 'POINT':
+        out.push({ type: 'POINT', p: vec(r, 10), ...cm });
+        return;
+      case 'ACAD_TABLE':
+      case 'ARC_DIMENSION':
+      case 'LARGE_RADIAL_DIMENSION': {
+        // Có block hình vẽ riêng → hiển thị qua INSERT.
+        const bname = get(r, 2);
+        if (bname) out.push({ type: 'INSERT', name: decodeDxfText(bname), p: [0, 0], sx: 1, sy: 1, rot: 0, ...cm });
+        else skip(type);
+        return;
+      }
+      case 'MLINE': {
+        const scale = num(r, 40, 1);
+        const just = num(r, 70, 0);
+        const flags = num(r, 71, 0);
+        const verts: Vec[] = [];
+        for (let k = 0; k < r.length; k++) if (r[k][0] === 11) verts.push([Number(r[k][1]), Number(r[k + 1]?.[1] ?? 0)]);
+        if (verts.length < 2) return void skip('MLINE');
+        // Kiểu STANDARD: hai nét ở ±0,5 × tỉ lệ.
+        const closed = (flags & 2) !== 0;
+        const [o1, o2] = just === 0 ? [0, -scale] : just === 2 ? [scale, 0] : [scale / 2, -scale / 2];
+        const side = (o: number) => (Math.abs(o) < 1e-12 ? verts : offsetPolyline(verts, closed, o));
+        const a = side(o1);
+        const b = side(o2);
+        out.push({ type: 'LWPOLYLINE', pts: a, closed, ...cm }, { type: 'LWPOLYLINE', pts: b, closed, ...cm });
+        if (!closed) {
+          if (!(flags & 4)) out.push({ type: 'LINE', a: a[0], b: b[0], ...cm });
+          if (!(flags & 8)) out.push({ type: 'LINE', a: a[a.length - 1], b: b[b.length - 1], ...cm });
+        }
+        return;
+      }
+      case 'MULTILEADER':
+      case 'MLEADER': {
+        let text = '';
+        let loc: Vec | null = null;
+        let h = 0;
+        const lines: Vec[][] = [];
+        let cur: Vec[] | null = null;
+        let conn: Vec | null = null;
+        let inLeader = false;
+        for (let k = 0; k < r.length; k++) {
+          const [c, v] = r[k];
+          if (c === 302 && v === 'LEADER{') inLeader = true;
+          else if (c === 303) inLeader = false;
+          else if (c === 304 && v === 'LEADER_LINE{') cur = [];
+          else if (c === 305 && cur) {
+            lines.push(conn ? [...cur, conn] : cur);
+            cur = null;
+          } else if (c === 304 && !text) text = v;
+          else if (c === 10 && cur) cur.push([Number(v), Number(r[k + 1]?.[1] ?? 0)]);
+          else if (c === 10 && inLeader && !conn) conn = [Number(v), Number(r[k + 1]?.[1] ?? 0)];
+          else if (c === 12 && !loc) loc = [Number(v), Number(r[k + 1]?.[1] ?? 0)];
+          else if (c === 41 && !h) h = Number(v);
+        }
+        for (const l of lines) if (l.length >= 2) out.push({ type: 'LWPOLYLINE', pts: l, closed: false, ...cm });
+        if (text && loc) {
+          const hh = h > 0 ? h : dimStyle.txt;
+          stripMtext(text)
+            .split('\n')
+            .forEach((t, k) => t.trim() && out.push({ type: 'TEXT', p: [loc![0], loc![1] - hh * (k + 1) * 1.4 + hh * 0.4], h: hh, text: t, rot: 0, ...cm }));
+        }
+        if (!lines.length && !text) skip(type);
+        return;
+      }
+      case 'HATCH': {
+        const h = parseHatch(r);
+        if (h) out.push({ type: 'HATCH', ...h, ...cm });
+        else skip('HATCH (biên chưa đọc được)');
+        return;
+      }
       default:
         skip(type);
     }
@@ -722,4 +814,132 @@ export function readDxf(text: string): DxfReadResult {
     },
     skipped,
   };
+}
+
+// ---------- HATCH ----------
+
+/** Đọc HATCH theo đúng thứ tự mã nhóm. */
+function parseHatch(r: Pair[]): { loops: Vec[][]; solid: boolean; pattern: string; scale: number; angle: number; lines: PatLine[] } | null {
+  let i = 0;
+  const N = (x: string) => Number(x);
+  const findFrom = (code: number) => {
+    while (i < r.length && r[i][0] !== code) i++;
+    return i < r.length;
+  };
+  let pattern = 'SOLID';
+  let solid = false;
+  for (const [c, v] of r) {
+    if (c === 2) pattern = v;
+    if (c === 70) {
+      solid = N(v) === 1;
+      break;
+    }
+  }
+  if (!findFrom(91)) return null;
+  const nPaths = N(r[i][1]);
+  i++;
+  const loops: Vec[][] = [];
+  const take = (code: number): number => {
+    while (i < r.length && r[i][0] !== code) i++;
+    return i < r.length ? N(r[i++][1]) : 0;
+  };
+  const takeVec = (code: number): Vec => {
+    const x = take(code);
+    const y = take(code + 10);
+    return [x, y];
+  };
+  for (let pth = 0; pth < nPaths; pth++) {
+    const flags = take(92);
+    const loop: Vec[] = [];
+    if (flags & 2) {
+      // Đa tuyến.
+      const hasBulge = take(72);
+      take(73);
+      const nv = take(93);
+      const verts: { p: Vec; b: number }[] = [];
+      for (let k = 0; k < nv; k++) {
+        const p = takeVec(10);
+        let b = 0;
+        if (hasBulge && r[i]?.[0] === 42) b = N(r[i++][1]);
+        verts.push({ p, b });
+      }
+      for (let k = 0; k < verts.length; k++) {
+        loop.push(verts[k].p);
+        loop.push(...bulgePoints(verts[k].p, verts[(k + 1) % verts.length].p, verts[k].b));
+      }
+    } else {
+      const ne = take(93);
+      for (let k = 0; k < ne; k++) {
+        const et = take(72);
+        if (et === 1) {
+          const a = takeVec(10);
+          const b = takeVec(11);
+          if (!loop.length || dist(loop[loop.length - 1], a) > 1e-9) loop.push(a);
+          loop.push(b);
+        } else if (et === 2 || et === 3) {
+          const c = takeVec(10);
+          let rad: number;
+          let major: Vec = [1, 0];
+          let ratio = 1;
+          if (et === 2) rad = take(40);
+          else {
+            major = takeVec(11);
+            ratio = take(40);
+            rad = Math.hypot(major[0], major[1]);
+          }
+          let a0 = take(50);
+          let a1 = take(51);
+          const ccw = take(73);
+          if (!ccw) {
+            [a0, a1] = [-a0, -a1];
+          }
+          let sweep = a1 - a0;
+          if (ccw && sweep <= 0) sweep += 360;
+          if (!ccw && sweep >= 0) sweep -= 360;
+          const steps = Math.max(4, Math.ceil(Math.abs(sweep) / 5));
+          const rot = Math.atan2(major[1], major[0]);
+          for (let s = 0; s <= steps; s++) {
+            const t = deg2rad(a0 + (sweep * s) / steps);
+            const lx = rad * Math.cos(t);
+            const ly = rad * ratio * Math.sin(t);
+            const p: Vec = [c[0] + lx * Math.cos(rot) - ly * Math.sin(rot), c[1] + lx * Math.sin(rot) + ly * Math.cos(rot)];
+            if (s === 0 && loop.length && dist(loop[loop.length - 1], p) < 1e-9) continue;
+            loop.push(p);
+          }
+        } else if (et === 4) {
+          // Spline: lấy các điểm điều khiển (gần đúng).
+          take(94);
+          take(73);
+          take(74);
+          const nk = take(95);
+          const nc = take(96);
+          for (let q = 0; q < nk; q++) take(40);
+          for (let q = 0; q < nc; q++) loop.push(takeVec(10));
+        }
+      }
+    }
+    // Bỏ điểm cuối trùng điểm đầu.
+    if (loop.length > 2 && dist(loop[0], loop[loop.length - 1]) < 1e-9) loop.pop();
+    if (loop.length >= 3) loops.push(loop);
+    // Bỏ qua danh sách đối tượng nguồn (97 + 330).
+  }
+  if (!loops.length) return null;
+  const angle = findFrom(52) ? N(r[i][1]) : 0;
+  const scale = findFrom(41) ? N(r[i][1]) || 1 : 1;
+  const lines: PatLine[] = [];
+  if (!solid && findFrom(78)) {
+    const nl = N(r[i++][1]);
+    for (let k = 0; k < nl; k++) {
+      const ang = take(53);
+      const bx = take(43);
+      const by = take(44);
+      const off: Vec = [take(45), take(46)];
+      const nd = take(79);
+      const dashes: number[] = [];
+      for (let q = 0; q < nd; q++) dashes.push(take(49));
+      lines.push({ angle: ang, base: [bx, by], offset: off, dashes });
+    }
+  }
+  if (!solid && !lines.length) lines.push({ angle: 45, base: [0, 0], offset: [0, 3 * scale], dashes: [] });
+  return { loops, solid, pattern: pattern.toUpperCase(), scale, angle, lines };
 }

@@ -288,3 +288,107 @@ describe('Layer', () => {
     expect(doc.entities.size).toBe(1);
   });
 });
+
+describe('HATCH', () => {
+  it('bấm điểm trong vùng tạo bởi các đoạn thẳng rời, nhận đảo', () => {
+    const { doc, api, first } = setup();
+    api.run('LINE', { points: [[-100, 0], [1100, 0]] });
+    api.run('LINE', { points: [[1000, -100], [1000, 1100]] });
+    api.run('LINE', { points: [[1100, 1000], [-100, 1000]] });
+    api.run('LINE', { points: [[0, 1100], [0, -100]] });
+    api.run('CIRCLE', { center: [500, 500], radius: 100 });
+    const h = first(api.run('HATCH', { pick: [200, 200], pattern: 'LINE45', scale: 10 }));
+    const e = doc.get(h)!;
+    expect(e.type).toBe('HATCH');
+    if (e.type === 'HATCH') {
+      expect(e.loops.length).toBe(2);
+      const xs = e.loops[0].map((p) => p[0]);
+      expect(Math.min(...xs)).toBeCloseTo(0);
+      expect(Math.max(...xs)).toBeCloseTo(1000);
+    }
+    expect(api.query.describe(h)).toMatch(/diện tích 96/);
+  });
+  it('bấm ở ngoài mọi vùng kín → báo lỗi', () => {
+    const { api } = setup();
+    api.run('RECTANG', { p1: [0, 0], p2: [10, 10] });
+    expect(() => api.run('HATCH', { pick: [50, 50] })).toThrow(/vùng kín/);
+  });
+  it('HATCH theo đối tượng kín, HATCHEDIT, xoay/dời, BOUNDARY', () => {
+    const { doc, api, first } = setup();
+    const r = first(api.run('RECTANG', { p1: [0, 0], p2: [100, 50] }));
+    const h = first(api.run('HATCH', { ids: [r], pattern: 'SOLID' }));
+    expect(doc.get(h)).toMatchObject({ solid: true });
+    api.run('HATCHEDIT', { ids: [h], pattern: 'CROSS', scale: 5 });
+    expect(doc.get(h)).toMatchObject({ solid: false, pattern: 'CROSS', scale: 5 });
+    api.run('ROTATE', { ids: [h], base: [0, 0], angle: 90 });
+    const e = doc.get(h)!;
+    if (e.type === 'HATCH') expect(e.lines[0].angle).toBeCloseTo(90);
+    api.run('LINE', { points: [[200, 0], [300, 0], [250, 80]], close: true });
+    const b = api.run('BOUNDARY', { pick: [250, 20] });
+    const pl = doc.get((b.ids as number[])[0])!;
+    expect(pl).toMatchObject({ type: 'LWPOLYLINE', closed: true });
+    if (pl.type === 'LWPOLYLINE') expect(pl.pts.length).toBe(3);
+  });
+});
+
+describe('SETPROP, ARRAY, STRETCH, ELLIPSE', () => {
+  it('SETPROP sửa hình học và thuộc tính chung', () => {
+    const { doc, api, first } = setup();
+    const c = first(api.run('CIRCLE', { center: [0, 0], radius: 5 }));
+    api.run('SETPROP', { ids: [c], set: { r: 50, c: [10, 20], layer: 'X', color: 3 } });
+    expect(doc.get(c)).toMatchObject({ r: 50, c: [10, 20], layer: 'X', color: 3 });
+    api.run('SETPROP', { ids: [c], set: '{"color":"BYLAYER"}' });
+    expect(doc.get(c)!.color).toBeUndefined();
+    expect(() => api.run('SETPROP', { ids: [c], set: { text: 'x' } })).toThrow(/không có thuộc tính/);
+    expect(() => api.run('SETPROP', { ids: [c], set: { r: -1 } })).toThrow();
+    const t = first(api.run('TEXT', { position: [0, 0], text: 'A' }));
+    api.run('SETPROP', { ids: [t], set: { text: 'Phòng khách', h: 300 } });
+    expect(doc.get(t)).toMatchObject({ text: 'Phòng khách', h: 300 });
+  });
+  it('ARRAY chữ nhật và tròn', () => {
+    const { doc, api, first } = setup();
+    const c = first(api.run('CIRCLE', { center: [0, 0], radius: 5 }));
+    expect((api.run('ARRAY', { ids: [c], rows: 2, cols: 3, dx: 100, dy: 50 }).ids as number[]).length).toBe(5);
+    const l = first(api.run('LINE', { points: [[100, 0], [120, 0]] }));
+    api.run('ARRAY', { ids: [l], kind: 'polar', center: [0, 0], count: 4 });
+    const lines = doc.all().filter((e) => e.type === 'LINE') as Extract<Entity, { type: 'LINE' }>[];
+    expect(lines.length).toBe(4);
+    expect(lines.some((x) => Math.abs(x.a[1] - 100) < 1e-9 && Math.abs(x.a[0]) < 1e-9)).toBe(true);
+  });
+  it('STRETCH dời đầu mút trong khung, giữ phần ngoài', () => {
+    const { doc, api, first } = setup();
+    const r = first(api.run('RECTANG', { p1: [0, 0], p2: [100, 50] }));
+    const l = first(api.run('LINE', { points: [[0, 100], [100, 100]] }));
+    api.run('STRETCH', { p1: [90, -10], p2: [110, 110], from: [0, 0], to: [50, 0] });
+    const e = doc.get(r)!;
+    if (e.type === 'LWPOLYLINE') expect(Math.max(...e.pts.map((p) => p[0]))).toBe(150);
+    expect(doc.get(l)).toMatchObject({ a: [0, 100], b: [150, 100] });
+  });
+  it('ELLIPSE', () => {
+    const { api, first } = setup();
+    const e = first(api.run('ELLIPSE', { center: [0, 0], rx: 100, ry: 50 }));
+    const r = api.run('AREA', { ids: [e] });
+    expect(r.area as number).toBeCloseTo(Math.PI * 5000, -2);
+  });
+});
+
+describe('MLINE, PASTECLIP', () => {
+  it('MLINE tạo hai nét song song và nét bịt đầu', () => {
+    const { doc, api } = setup();
+    const r = api.run('MLINE', { points: [[0, 0], [4000, 0], [4000, 3000]], width: 200 });
+    expect((r.ids as number[]).length).toBe(4);
+    const polys = doc.all().filter((e) => e.type === 'LWPOLYLINE') as Extract<Entity, { type: 'LWPOLYLINE' }>[];
+    const ys = polys.map((p) => p.pts[0][1]).sort((a, b) => a - b);
+    expect(ys).toEqual([-100, 100]);
+    // Góc trong / ngoài của tường gặp nhau đúng (giao nhau kiểu vát).
+    const outer = polys.find((p) => p.pts[0][1] === -100)!;
+    expect(outer.pts[1]).toEqual([4100, -100]);
+  });
+  it('PASTECLIP dán dữ liệu kèm block', () => {
+    const { doc, api } = setup();
+    const data = { ents: [{ type: 'INSERT', name: 'B', p: [0, 0], sx: 1, sy: 1, rot: 0, layer: '0' }], blocks: [{ name: 'B', base: [0, 0], ents: [{ type: 'LINE', a: [0, 0], b: [1, 0], layer: '0' }] }] };
+    api.run('PASTECLIP', { data: JSON.stringify(data), from: [0, 0], to: [10, 5] });
+    expect(doc.blocks.has('B')).toBe(true);
+    expect(doc.all()[0]).toMatchObject({ type: 'INSERT', p: [10, 5] });
+  });
+});

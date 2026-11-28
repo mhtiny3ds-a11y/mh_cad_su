@@ -215,6 +215,127 @@ try {
   await page.mouse.move(box.x + 5, box.y + 5);
   await page.screenshot({ path: `${OUT}v2-drawing.png` });
 
+  // 12. HATCH bằng bấm điểm, mở DWG thật, hiệu năng.
+  await page.evaluate(() => {
+    const m = window.mhcad;
+    m.file.newDrawing();
+    m.run('RECTANG', { p1: [0, 0], p2: [6000, 4000] });
+    m.run('CIRCLE', { center: [3000, 2000], radius: 800 });
+    m.view.zoomExtents();
+  });
+  await page.waitForTimeout(50);
+  await type('H');
+  await type('P', 'BRICK');
+  await click([1000, 1000]);
+  await cmd.press('Enter');
+  const hatch = await page.evaluate(() => window.mhcad.query.entities({ type: 'HATCH' }));
+  check('HATCH bấm điểm có đảo', hatch.length === 1 && hatch[0].loops.length === 2 && hatch[0].pattern === 'BRICK', JSON.stringify(hatch.map((h) => h.loops.length)));
+  await page.mouse.move(box.x + 5, box.y + 5);
+  await page.screenshot({ path: `${OUT}hatch.png` });
+
+  await page.locator('#file').setInputFiles(new URL('../tests/fixtures/example_2018.dwg', import.meta.url).pathname);
+  await page.waitForFunction(() => window.mhcad.query.summary().entityCount > 20, null, { timeout: 30000 });
+  const dwg = await page.evaluate(() => window.mhcad.query.summary());
+  check('Mở DWG 2018 trong trình duyệt (Web Worker + WebAssembly)', dwg.entityCount > 20, `${dwg.entityCount} đối tượng, ${dwg.blocks} block`);
+  await page.waitForTimeout(100);
+  await page.screenshot({ path: `${OUT}dwg.png` });
+
+  const perf = await page.evaluate(() => {
+    const m = window.mhcad;
+    m.file.newDrawing();
+    const t0 = performance.now();
+    m.batch('Nhiều đối tượng', () => {
+      const pts = [];
+      for (let i = 0; i < 200; i++) for (let j = 0; j < 125; j++) {
+        const x = i * 1000;
+        const y = j * 1000;
+        m.run('RECTANG', { p1: [x, y], p2: [x + 800, y + 600] });
+        if ((i + j) % 2) m.run('CIRCLE', { center: [x + 400, y + 300], radius: 200 });
+      }
+    });
+    const build = performance.now() - t0;
+    m.view.zoomExtents();
+    const times = [];
+    for (let k = 0; k < 5; k++) times.push(m.view.redrawNow());
+    return { n: m.query.summary().entityCount, build: Math.round(build), render: Math.round(Math.min(...times)) };
+  });
+  check(`Hiệu năng: ${perf.n} đối tượng vẽ trong ${perf.render} ms`, perf.render < 250, JSON.stringify(perf));
+  // Rê chuột trên bản vẽ lớn: đo thời gian xử lý một lần di chuyển.
+  const moveMs = await page.evaluate(async () => {
+    const cv = document.querySelector('#cv');
+    const r = cv.getBoundingClientRect();
+    const t0 = performance.now();
+    for (let i = 0; i < 20; i++) cv.dispatchEvent(new PointerEvent('pointermove', { clientX: r.left + 100 + i * 10, clientY: r.top + 200, bubbles: true }));
+    return (performance.now() - t0) / 20;
+  });
+  check(`Rê chuột trên bản vẽ lớn: ${moveMs.toFixed(1)} ms/lần`, moveMs < 30);
+
+  // 13. Gợi ý lệnh, nhập động, POLAR, bảng thuộc tính, sửa chữ tại chỗ.
+  await page.evaluate(() => {
+    const m = window.mhcad;
+    m.file.newDrawing();
+    m.run('RECTANG', { p1: [0, 0], p2: [4000, 3000] });
+    m.run('CIRCLE', { center: [6000, 1500], radius: 700 });
+    m.run('TEXT', { position: [500, 1200], text: 'Phòng ngủ', height: 300 });
+    m.view.zoomExtents();
+  });
+  await page.waitForTimeout(50);
+  await cmd.fill('');
+  await cmd.type('TR');
+  const acTxt = await page.locator('#ac').innerText();
+  check('Gợi ý lệnh khi gõ', (await page.locator('#ac').isVisible()) && acTxt.includes('TRIM'), acTxt.split('\n')[0]);
+  await cmd.press('Escape');
+  await cmd.fill('');
+  await cmd.type('ELL');
+  await cmd.press('ArrowDown');
+  await cmd.press('Enter');
+  const prompt1 = await page.locator('#prompt').innerText();
+  check('Chọn gợi ý bằng phím mũi tên + Enter', prompt1.startsWith('ELLIPSE'), prompt1);
+  await page.keyboard.press('Escape');
+
+  await type('L', '0,0');
+  // Đưa chuột gần hướng 45° (lệch một chút) → POLAR bắt đúng 45°.
+  const [ox, oy] = await page.evaluate(() => window.mhcad.view.toClient([0, 0]));
+  const [tx, ty] = await page.evaluate(() => window.mhcad.view.toClient([2000, 2050]));
+  await page.mouse.move(tx, ty, { steps: 3 });
+  const dynTxt = await page.locator('#dyn').innerText();
+  check('Ô nhập động hiện độ dài/góc và POLAR', (await page.locator('#dyn').isVisible()) && /45°/.test(dynTxt), dynTxt.replace(/\n/g, ' | '));
+  await page.mouse.click(tx, ty);
+  await cmd.press('Enter');
+  const pl = await page.evaluate(() => window.mhcad.query.entities({ type: 'LINE' }).pop());
+  const ang = (Math.atan2(pl.b[1] - pl.a[1], pl.b[0] - pl.a[0]) * 180) / Math.PI;
+  check('POLAR khoá góc 45°', Math.abs(ang - 45) < 1e-9, `${ang.toFixed(6)}°`);
+  void ox; void oy;
+
+  // Bảng thuộc tính: chọn đường tròn, sửa bán kính.
+  const [cxp, cyp] = await page.evaluate(() => window.mhcad.view.toClient([6700, 1500]));
+  await page.mouse.click(cxp, cyp);
+  await page.keyboard.press('Control+1');
+  await page.waitForTimeout(50);
+  check('Ctrl+1 mở bảng thuộc tính', await page.locator('#props').isVisible());
+  const rIn = page.locator('#props input[data-k="r"]');
+  await rIn.fill('900');
+  await rIn.press('Enter');
+  const r900 = await page.evaluate(() => window.mhcad.query.entities({ type: 'CIRCLE' })[0].r);
+  check('Sửa bán kính trong bảng thuộc tính', r900 === 900, String(r900));
+  await page.waitForTimeout(80);
+  check('Bảng thuộc tính cập nhật sau khi sửa', (await page.locator('#props').innerText()).includes('R = 900'));
+  check('Ô nhập động ẩn khi không có lệnh', !(await page.locator('#dyn').isVisible()));
+  await page.screenshot({ path: `${OUT}props.png` });
+  await page.keyboard.press('Control+1');
+  await page.keyboard.press('Escape');
+
+  // Bấm đúp vào chữ → sửa tại chỗ.
+  const [txp, typ] = await page.evaluate(() => window.mhcad.view.toClient([700, 1300]));
+  await page.mouse.move(txp, typ);
+  await page.mouse.dblclick(txp, typ);
+  await page.waitForTimeout(50);
+  check('Bấm đúp mở ô sửa chữ', await page.locator('#inline').isVisible());
+  await page.locator('#inline').fill('Phòng khách 20m²');
+  await page.locator('#inline').press('Enter');
+  const txt = await page.evaluate(() => window.mhcad.query.entities({ type: 'TEXT' })[0].text);
+  check('Sửa chữ tại chỗ', txt === 'Phòng khách 20m²', txt);
+
   // 10. Giao diện điện thoại.
   const phone = await browser.newPage({ viewport: { width: 390, height: 780 } });
   await phone.goto(BASE);
