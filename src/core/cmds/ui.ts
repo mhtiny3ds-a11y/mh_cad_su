@@ -221,5 +221,7 @@ export const UI_COMMANDS: CommandDef[] = [
   uiCmd('PROPERTIES', ['PR', 'MO'], 'Bảng thuộc tính (Ctrl+1)'),
   uiCmd('LAYMAN', ['LAYERS'], 'Hộp quản lý layer'),
   uiCmd('ABOUT', [], 'Giới thiệu MHCAD'),
+  uiCmd('APPLOAD', ['AP', 'LOADLISP'], 'Nạp tệp AutoLISP (.lsp); tệp đã nạp được tự nạp lại lần sau (hoặc kéo-thả tệp .lsp vào vùng vẽ)'),
+  uiCmd('LISPCLEAR', [], 'Bỏ danh sách lisp tự nạp khi mở MHCAD'),
   WBLOCK,
 ];

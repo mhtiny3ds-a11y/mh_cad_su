@@ -1,6 +1,6 @@
 // Kiểm thử đầu-cuối: chạy bản build thật trong Chromium, gõ lệnh như người dùng.
 // Chạy: npm run build && npm run e2e
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 // Playwright cài sẵn toàn cục trong môi trường phát triển; trên máy khác: npm i -D playwright.
@@ -377,6 +377,27 @@ try {
   await page.evaluate(() => window.mhcad.view.zoomExtents());
   await page.mouse.move(box.x + 5, box.y + 5);
   await page.screenshot({ path: `${OUT}xline-mtext.png` });
+
+  // AutoLISP: gõ biểu thức trên dòng lệnh, nạp tệp .lsp, chạy lệnh C:XXX.
+  await page.evaluate(() => window.mhcad.file.newDrawing());
+  await type('(command "_.CIRCLE" \'(0 0) 500)');
+  await page.waitForFunction(() => window.mhcad.query.entities({ type: 'CIRCLE' }).length === 1, null, { timeout: 3000 }).catch(() => {});
+  check('Gõ (command …) trên dòng lệnh', (await page.evaluate(() => window.mhcad.query.entities({ type: 'CIRCLE' }).length)) === 1);
+  await type('(setq a (+ 1', '2))');
+  await page.waitForTimeout(100);
+  const hist = await page.locator('#history').innerText();
+  check('Lisp nhiều dòng (thiếu ngoặc chờ dòng sau)', /\n3\s*$/.test(hist), hist.split('\n').slice(-2).join(' | '));
+  const lspPath = `${OUT}thu.lsp`;
+  writeFileSync(lspPath, '(defun c:VUONG (/ p) (setq p (getpoint "\\nGóc: ")) (command "_.RECTANG" p (polar p 0.785398 1414.2136)) (princ))');
+  await page.locator('#lspfile').setInputFiles(lspPath);
+  await page.waitForFunction(() => document.querySelector('#history').textContent.includes('VUONG'), null, { timeout: 3000 }).catch(() => {});
+  check('APPLOAD nạp tệp .lsp, đăng ký lệnh C:VUONG', (await page.locator('#history').innerText()).includes('lệnh mới: VUONG'));
+  await type('VUONG', '100,100');
+  await page.waitForFunction(() => window.mhcad.query.entities({ type: 'LWPOLYLINE' }).length === 1, null, { timeout: 3000 }).catch(() => {});
+  const sq = await page.evaluate(() => window.mhcad.query.entities({ type: 'LWPOLYLINE' })[0]?.pts);
+  check('Chạy lệnh lisp, getpoint lấy điểm gõ tay', !!sq && Math.abs(sq[2][0] - 1100) < 1e-2, JSON.stringify(sq));
+  const ar = await page.evaluate(() => window.mhcad.lisp('(length (list 1 2 3))'));
+  check('mhcad.lisp() cho AI', ar.value === '3', JSON.stringify(ar));
 
   // 10. Giao diện điện thoại.
   const phone = await browser.newPage({ viewport: { width: 390, height: 780 } });

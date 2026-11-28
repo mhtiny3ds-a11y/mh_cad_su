@@ -2,7 +2,7 @@
 
 import { type Vec, deg2rad, polar } from '../geom';
 import { type Entity, type NewEntity, bbox, expand, normDeg, pointInPolygon, polySegments } from '../entities';
-import { PATTERNS, findBoundary, patternLines } from '../hatch';
+import { PATTERNS, findBoundary, patternLines, resolvePattern } from '../hatch';
 import { type CommandDef, type Ctx, COMMON, bool, created, ids, num, optStr, props, pt, pts } from '../commands';
 
 /** Chia mọi đối tượng (trừ chữ, tô) thành đoạn thẳng để dò biên. */
@@ -113,9 +113,9 @@ const HATCH: CommandDef = {
       });
     } else if (Array.isArray(args.points)) loops = [pts(args, 'points', 3)];
     else throw new Error('Cần "pick", "ids" hoặc "points"');
-    const pattern = (optStr(args, 'pattern') ?? 'LINE45').toUpperCase();
+    const pattern = resolvePattern(optStr(args, 'pattern') ?? ctx.doc.getVar('HPNAME', 'LINE45'));
     if (!PATTERNS[pattern]) throw new Error(`Không có mẫu "${pattern}". Các mẫu: ${Object.keys(PATTERNS).join(', ')}`);
-    const scale = num(args, 'scale', ctx.doc.ltscale);
+    const scale = num(args, 'scale', ctx.doc.getVar('HPSCALE', ctx.doc.ltscale));
     if (scale <= 0) throw new Error('Tỉ lệ phải > 0');
     const angle = num(args, 'angle', 0);
     const e = ctx.doc.add({
@@ -182,7 +182,7 @@ const HATCHEDIT: CommandDef = {
     const list = ids(ctx, args).filter((e): e is Extract<Entity, { type: 'HATCH' }> => e.type === 'HATCH');
     if (!list.length) throw new Error('Không có HATCH nào trong danh sách');
     for (const h of list) {
-      const pattern = (optStr(args, 'pattern') ?? h.pattern).toUpperCase();
+      const pattern = resolvePattern(optStr(args, 'pattern') ?? h.pattern);
       const scale = num(args, 'scale', h.scale);
       const angle = num(args, 'angle', h.angle);
       if (!PATTERNS[pattern]) throw new Error(`Không có mẫu "${pattern}"`);

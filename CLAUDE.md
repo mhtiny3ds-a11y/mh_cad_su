@@ -31,6 +31,9 @@ src/core/      không phụ thuộc DOM, kiểm thử được bằng Vitest
   cmds/tools.ts  LENGTHEN, DIVIDE, OVERKILL, ALIGN, PEDIT, ARRAYPATH…, tra cứu (ID, CAL, MASSPROP), quản lý (PURGE, RENAME, COLOR, SETVAR)
   cmds/annot2.ts DIMBASELINE, DIMORDINATE, DIMARC, QDIM, MLEADER, TABLE, CENTERMARK, GOPY…
   cmds/ui.ts     lệnh cần giao diện (tệp, in, bộ nhớ tạm, UNDO n bước) — gọi ctx.ui; WBLOCK
+  lisp/          AutoLISP: reader.ts (đọc mã), interp.ts (đánh giá bất đồng bộ, phạm vi động, hàm lõi),
+                 cad.ts (command qua IO kịch bản, entget/entmake/ssget, getvar, vlax-curve, VLA), index.ts (LISP, LSPCHECK,
+                 lệnh C:XXX, mhcad.lisp)
   hatch.ts       mẫu tô, cắt nét mẫu theo biên, chia hình thang, findBoundary
   dwg.ts         DWG → DXF bằng LibreDWG WebAssembly (chạy trong src/ui/dwg-worker.ts)
   spatial.ts     chỉ mục lưới cho rê chuột / bắt điểm
