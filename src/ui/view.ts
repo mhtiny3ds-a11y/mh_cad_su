@@ -4,7 +4,7 @@
 import type { BBox, Vec } from '../core/geom';
 import { deg2rad } from '../core/geom';
 import type { Drawing } from '../core/document';
-import { type Entity, type NewEntity, type SnapKind, bbox } from '../core/entities';
+import { type Entity, type NewEntity, type SnapKind, bbox, expand, gripPoints } from '../core/entities';
 
 export class Viewport {
   /** Số pixel (CSS) trên một đơn vị bản vẽ. */
@@ -109,6 +109,9 @@ export interface RenderState {
   box: { a: Vec; b: Vec } | null;
   pickbox: boolean;
   pickSize: number;
+  /** Hiện điểm nắm (grip) của đối tượng đang chọn. */
+  grips: boolean;
+  hotGrip: { id: number; i: number } | null;
 }
 
 function niceStep(minWorld: number): number {
@@ -180,12 +183,14 @@ function pathEntity(g: CanvasRenderingContext2D, e: NewEntity | Entity, vp: View
 function drawText(g: CanvasRenderingContext2D, e: NewEntity & { type: 'TEXT' }, vp: Viewport, color: string): void {
   const px = e.h * vp.scale;
   const p = vp.toScreen(e.p);
-  if (px < 2) {
+  if (px < 1.5) {
     // Chữ quá nhỏ: vẽ một vạch thay thế cho nhẹ.
     g.strokeStyle = color;
     g.beginPath();
-    g.moveTo(p[0], p[1]);
-    g.lineTo(p[0] + Math.max(2, e.text.length * px * 0.6), p[1]);
+    const w = Math.max(1, e.text.length * px * 0.6);
+    const x0 = e.ha === 'C' ? p[0] - w / 2 : e.ha === 'R' ? p[0] - w : p[0];
+    g.moveTo(x0, p[1]);
+    g.lineTo(x0 + w, p[1]);
     g.stroke();
     return;
   }
@@ -194,16 +199,55 @@ function drawText(g: CanvasRenderingContext2D, e: NewEntity & { type: 'TEXT' }, 
   g.rotate(-deg2rad(e.rot));
   g.fillStyle = color;
   g.font = `${px}px "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif`;
+  g.textAlign = e.ha === 'C' ? 'center' : e.ha === 'R' ? 'right' : 'left';
   g.textBaseline = 'alphabetic';
-  g.fillText(e.text, 0, 0);
+  g.fillText(e.text, 0, e.va === 'M' ? px / 2 : e.va === 'T' ? px : 0);
   g.restore();
 }
 
-function drawOne(g: CanvasRenderingContext2D, e: NewEntity | Entity, vp: Viewport, color: string): void {
+/** Nét đứt theo kiểu đường (đơn vị bản vẽ × LTSCALE → pixel). */
+function dashFor(pattern: number[], ltscale: number, scale: number): number[] {
+  if (!pattern.length) return [];
+  const px = pattern.map((x) => Math.abs(x) * ltscale * scale);
+  const period = px.reduce((a, b) => a + b, 0);
+  if (period < 6 || period > 1e5) return [];
+  return pattern.map((x, i) => (x === 0 ? 1 : Math.max(px[i], 1)));
+}
+
+function drawOne(g: CanvasRenderingContext2D, e: NewEntity | Entity, vp: Viewport, color: string, dash: number[] = []): void {
   if (e.type === 'TEXT') return drawText(g, e, vp, color);
+  if (e.type === 'LWPOLYLINE' && e.fill) {
+    pathEntity(g, e, vp);
+    g.fillStyle = color;
+    g.fill();
+    return;
+  }
   g.strokeStyle = color;
+  if (dash.length) g.setLineDash(dash);
   pathEntity(g, e, vp);
   g.stroke();
+  if (dash.length) g.setLineDash([]);
+}
+
+/** Vẽ một đối tượng bất kỳ (block, kích thước được phân rã), màu theo đối tượng/layer. */
+function drawEntity(
+  g: CanvasRenderingContext2D,
+  e: NewEntity | Entity,
+  s: RenderState,
+  override: string | null,
+): void {
+  const { doc, vp, theme } = s;
+  if (e.type === 'INSERT' || e.type === 'DIMENSION') {
+    for (const x of expand(e)) {
+      if (doc.layers.get(x.layer)?.visible === false) continue;
+      drawEntity(g, x, s, override);
+    }
+    return;
+  }
+  const layer = doc.layers.get(e.layer);
+  const color = override ?? aciToCss(e.color ?? layer?.color ?? 7, theme.fg);
+  const dash = override ? [6, 4] : dashFor(doc.linePattern(e), doc.ltscale, vp.scale);
+  drawOne(g, e, vp, color, dash);
 }
 
 function drawSnapMarker(g: CanvasRenderingContext2D, p: Vec, kind: SnapKind, color: string): void {
@@ -249,6 +293,21 @@ function drawSnapMarker(g: CanvasRenderingContext2D, p: Vec, kind: SnapKind, col
       g.rect(p[0] - s, p[1] - s, 2 * s, 2 * s);
       g.moveTo(p[0] - s, p[1]);
       g.lineTo(p[0] + s, p[1]);
+      break;
+    case 'perp':
+      g.moveTo(p[0] - s, p[1] - s);
+      g.lineTo(p[0] - s, p[1] + s);
+      g.lineTo(p[0] + s, p[1] + s);
+      g.moveTo(p[0] - s, p[1]);
+      g.lineTo(p[0], p[1]);
+      g.lineTo(p[0], p[1] + s);
+      break;
+    case 'node':
+      g.arc(p[0], p[1], s, 0, Math.PI * 2);
+      g.moveTo(p[0] - s, p[1] - s);
+      g.lineTo(p[0] + s, p[1] + s);
+      g.moveTo(p[0] + s, p[1] - s);
+      g.lineTo(p[0] - s, p[1] + s);
       break;
   }
   g.stroke();
@@ -297,22 +356,30 @@ export function render(g: CanvasRenderingContext2D, s: RenderState): void {
   for (const e of doc.visible()) {
     const b = bbox(e);
     if (b.maxX < view.minX - pad || b.minX > view.maxX + pad || b.maxY < view.minY - pad || b.minY > view.maxY + pad) continue;
-    const layer = doc.layers.get(e.layer);
-    const color = aciToCss(e.color ?? layer?.color ?? 7, theme.fg);
     const sel = s.selection.has(e.id);
-    const hov = s.hover === e.id;
-    g.lineWidth = hov ? 2.5 : 1;
-    if (sel) {
-      g.setLineDash([6, 4]);
-      drawOne(g, e, vp, theme.select);
-      g.setLineDash([]);
-    } else drawOne(g, e, vp, color);
+    g.lineWidth = s.hover === e.id ? 2.5 : 1;
+    drawEntity(g, e, s, sel ? theme.select : null);
+  }
+
+  if (s.grips && s.selection.size && s.selection.size <= 200) {
+    g.lineWidth = 1;
+    for (const id of s.selection) {
+      const e = doc.get(id);
+      if (!e) continue;
+      gripPoints(e).forEach((p, i) => {
+        const q = vp.toScreen(p);
+        const hot = s.hotGrip && s.hotGrip.id === id && s.hotGrip.i === i;
+        g.fillStyle = hot ? '#ef4444' : theme.select;
+        g.fillRect(q[0] - 4, q[1] - 4, 8, 8);
+        g.strokeStyle = theme.bg;
+        g.strokeRect(q[0] - 4.5, q[1] - 4.5, 9, 9);
+      });
+    }
   }
 
   if (s.preview.length) {
     g.lineWidth = 1;
-    g.setLineDash([5, 4]);
-    for (const e of s.preview) drawOne(g, e, vp, theme.preview);
+    for (const e of s.preview) drawEntity(g, e, s, theme.preview);
     g.setLineDash([]);
   }
 

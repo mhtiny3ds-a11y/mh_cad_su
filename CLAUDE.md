@@ -15,11 +15,18 @@ thông báo giao diện đều bằng **tiếng Việt**; tên lệnh CAD giữ 
 ```
 src/core/      không phụ thuộc DOM, kiểm thử được bằng Vitest
   geom.ts        hình học 2D thuần (Vec = readonly [x, y])
-  entities.ts    LINE, CIRCLE, ARC, LWPOLYLINE, TEXT: hộp bao, chọn, bắt điểm, biến đổi
-  document.ts    Drawing: đối tượng, layer, hoàn tác theo giao dịch (begin/commit/rollback/transact)
-  commands.ts    Registry + CommandDef (params, run, interactive) + runCommand/runInteractive
+  entities.ts    LINE, CIRCLE, ARC, LWPOLYLINE, TEXT, DIMENSION, INSERT: hộp bao, chọn, bắt điểm, grip, biến đổi;
+                 expand() phân rã INSERT/DIMENSION thành đối tượng cơ bản
+  dim.ts         hình vẽ và giá trị của kích thước
+  curve.ts       đường cong có tham số (TRIM, EXTEND, BREAK)
+  document.ts    Drawing: đối tượng, layer, block, kiểu kích thước, kiểu đường, LTSCALE; hoàn tác theo giao dịch
+  commands.ts    Registry + CommandDef (params, run, interactive) + runCommand/runInteractive + lệnh cơ bản + tiện ích tham số
+  cmds/modify.ts TRIM, EXTEND, FILLET, CHAMFER, BREAK, JOIN, GRIPEDIT, CHPROP, MATCHPROP
+  cmds/annotate.ts POLYGON, AREA, DIM*, DIMSTYLE, BLOCK, INSERT, LTSCALE
+  registry.ts    createRegistry(): gom mọi lệnh — lệnh mới phải được thêm vào đây
   offset.ts      OFFSET
-  dxf.ts         đọc/ghi DXF ASCII
+  dxf.ts         đọc/ghi DXF ASCII (R12 khi ghi), giải mã bảng mã
+  svg.ts         xuất SVG / in theo khổ giấy và tỉ lệ
   input.ts       phân tích toạ độ gõ tay
   api.ts         window.mhcad (cho script / AI)
 src/ui/        giao diện
@@ -33,7 +40,7 @@ src/ui/        giao diện
 1. **Mọi thay đổi bản vẽ đi qua lệnh** (`CommandDef.run`) và `Drawing.add/update/remove`. Không sửa `entities` trực tiếp,
    nếu không hoàn tác sẽ sai.
 2. Lệnh mới: khai báo `params` có mô tả tiếng Việt rõ ràng (AI đọc `mhcad.help()` để biết cách gọi), viết `run()` thuần dữ liệu,
-   rồi `interactive()` chỉ hỏi người dùng và gọi lại `run()`. Thêm kiểm thử trong `tests/commands.test.ts`.
+   rồi `interactive()` chỉ hỏi người dùng và gọi lại `run()`. Đăng ký trong `registry.ts`. Thêm kiểm thử trong `tests/`.
 3. Góc lưu bằng độ, ngược chiều kim đồng hồ. Trục Y thế giới hướng lên.
 4. Mỗi tính năng mới kèm kiểm thử; sửa lỗi kèm kiểm thử tái hiện lỗi.
 5. Cập nhật `ROADMAP.md` (đánh dấu ✅) khi xong một mục.

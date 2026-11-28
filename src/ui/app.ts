@@ -7,18 +7,20 @@ import {
   type IO,
   type PointOpts,
   CancelError,
-  Registry,
+  type Registry,
   runInteractive,
 } from '../core/commands';
-import { type NewEntity, type SnapKind, bbox, distanceTo, insideBox, intersections, snapPoints, touchesBox } from '../core/entities';
+import { type NewEntity, type SnapKind, applyGrip, bbox, distanceTo, gripPoints, insideBox, intersections, perpendicularFoot, snapPoints, touchesBox } from '../core/entities';
 import { normDeg } from '../core/entities';
 import { parseInput } from '../core/input';
 import { type MhcadApi, createApi } from '../core/api';
-import { readDxf, writeDxf } from '../core/dxf';
+import { decodeDxfBytes, readDxf, writeDxf } from '../core/dxf';
+import { createRegistry } from '../core/registry';
+import { PAPERS, plotSvg } from '../core/svg';
 import { type Theme, Viewport, aciToCss, render } from './view';
 import { ICONS, LOGO } from './icons';
 
-export const VERSION = '0.1.0';
+export const VERSION = '0.2.0';
 
 const THEMES: Record<'dark' | 'light', Theme> = {
   dark: {
@@ -47,7 +49,7 @@ const THEMES: Record<'dark' | 'light', Theme> = {
   },
 };
 
-type PendingKind = 'point' | 'distance' | 'angle' | 'string' | 'selection';
+type PendingKind = 'point' | 'distance' | 'angle' | 'string' | 'selection' | 'entity';
 interface Pending {
   kind: PendingKind;
   msg: string;
@@ -81,7 +83,12 @@ const store = {
   },
 };
 
-const TOOLS = ['LINE', 'PLINE', 'RECTANG', 'CIRCLE', 'ARC', 'TEXT', '|', 'MOVE', 'COPY', 'ROTATE', 'SCALE', 'MIRROR', 'OFFSET', 'EXPLODE', 'ERASE', '|', 'DIST', 'LIST'];
+const TOOLS = [
+  'LINE', 'PLINE', 'RECTANG', 'POLYGON', 'CIRCLE', 'ARC', 'TEXT', '|',
+  'MOVE', 'COPY', 'ROTATE', 'SCALE', 'MIRROR', 'OFFSET', 'TRIM', 'EXTEND', 'FILLET', 'CHAMFER', 'BREAK', 'JOIN', 'EXPLODE', 'ERASE', '|',
+  'DIMLINEAR', 'DIMALIGNED', 'DIMRADIUS', 'DIMANGULAR', 'DIMCONTINUE', '|',
+  'BLOCK', 'INSERT', 'MATCHPROP', '|', 'DIST', 'AREA', 'LIST',
+];
 
 const TOOL_LABEL: Record<string, string> = {
   LINE: 'Đoạn thẳng (L)',
@@ -99,12 +106,28 @@ const TOOL_LABEL: Record<string, string> = {
   EXPLODE: 'Phá đa tuyến (X)',
   ERASE: 'Xoá (E)',
   DIST: 'Đo khoảng cách (DI)',
+  POLYGON: 'Đa giác đều (POL)',
+  TRIM: 'Cắt bỏ (TR)',
+  EXTEND: 'Kéo dài (EX)',
+  FILLET: 'Bo góc (F)',
+  CHAMFER: 'Vát góc (CHA)',
+  BREAK: 'Bẻ gãy (BR)',
+  JOIN: 'Nối (J)',
+  DIMLINEAR: 'Kích thước ngang/đứng (DLI)',
+  DIMALIGNED: 'Kích thước song song (DAL)',
+  DIMRADIUS: 'Kích thước bán kính (DRA)',
+  DIMANGULAR: 'Kích thước góc (DAN)',
+  DIMCONTINUE: 'Kích thước nối tiếp (DCO)',
+  BLOCK: 'Tạo block (B)',
+  INSERT: 'Chèn block (I)',
+  MATCHPROP: 'Sao chép thuộc tính (MA)',
+  AREA: 'Diện tích (AA)',
   LIST: 'Thông tin đối tượng (LI)',
 };
 
 export class App {
   readonly doc = new Drawing();
-  readonly reg = new Registry();
+  readonly reg: Registry = createRegistry();
   readonly vp = new Viewport();
   readonly api: MhcadApi;
   private selection = new Set<number>();
@@ -127,6 +150,9 @@ export class App {
   private snap: { p: Vec; kind: SnapKind } | null = null;
   private box: { a: Vec; b: Vec; startPx: Vec; dragging: boolean } | null = null;
   private pan: { last: Vec } | null = null;
+  private touches = new Map<number, Vec>();
+  private pinch: { d: number; mid: Vec } | null = null;
+  private hotGrip: { id: number; i: number } | null = null;
   private spaceDown = false;
   private pending: Pending | null = null;
   private running: Promise<void> | null = null;
@@ -166,6 +192,11 @@ export class App {
         zoomExtents: () => this.zoomExtents(),
         zoomWindow: (a, b) => this.zoomWindow(a, b),
         snapshot: () => this.snapshot(),
+        toClient: (p) => {
+          const r = this.canvas.getBoundingClientRect();
+          const q = this.vp.toScreen(p);
+          return [r.left + q[0], r.top + q[1]];
+        },
       },
     });
   }
@@ -188,9 +219,13 @@ export class App {
           <button data-act="undo" title="Hoàn tác (Ctrl+Z)">${ICONS.undo}</button>
           <button data-act="redo" title="Làm lại (Ctrl+Y)">${ICONS.redo}</button>
           <button data-act="extents" title="Xem toàn bộ (Z ↵ ↵)">${ICONS.extents}</button>
+          <span class="sep"></span>
+          <button data-act="plot" title="In / xuất PDF theo tỉ lệ (Ctrl+P)">${ICONS.plot}</button>
+          <button data-act="svg" title="Xuất SVG">${ICONS.svg}</button>
         </div>
         <div class="actions right">
-          <label class="layer" title="Layer hiện hành"><span class="dot"></span><select id="layer"></select></label>
+          <label class="layer" title="Layer hiện hành (đang chọn đối tượng: chuyển chúng sang layer này)"><span class="dot"></span><select id="layer"></select></label>
+          <button data-act="layers" title="Quản lý layer (LA)">${ICONS.layers}</button>
           <button data-act="theme" title="Đổi nền sáng/tối">${ICONS.theme}</button>
           <button data-act="help" title="Trợ giúp (F1)">${ICONS.help}</button>
         </div>
@@ -216,7 +251,10 @@ export class App {
         <span class="units" id="units">mm</span>
       </footer>
       <input type="file" id="file" accept=".dxf,.DXF" hidden />
-      <dialog id="help"></dialog>`;
+      <dialog id="help"></dialog>
+      <dialog id="layers"></dialog>
+      <dialog id="plot"></dialog>
+      <iframe id="printframe" title="In" aria-hidden="true" tabindex="-1"></iframe>`;
 
     this.canvas = this.root.querySelector('#cv')!;
     this.g = this.canvas.getContext('2d')!;
@@ -267,6 +305,13 @@ export class App {
     );
     this.layerSel.addEventListener('change', () => {
       try {
+        if (this.selection.size && !this.running) {
+          const r = this.api.run('CHPROP', { ids: [...this.selection], layer: this.layerSel.value });
+          this.print(r.message!);
+          this.selection.clear();
+          this.refreshLayers();
+          return;
+        }
         this.api.run('LAYER', { name: this.layerSel.value, current: true });
       } catch (e) {
         this.print((e as Error).message);
@@ -278,7 +323,7 @@ export class App {
       this.fileInput.value = '';
       if (!f) return;
       try {
-        const text = await f.text();
+        const text = decodeDxfBytes(await f.arrayBuffer());
         const r = readDxf(text);
         this.doc.load(r.data);
         this.fileName = f.name.replace(/\.dxf$/i, '') + '.dxf';
@@ -328,6 +373,15 @@ export class App {
         break;
       case 'help':
         this.showHelp();
+        break;
+      case 'layers':
+        this.showLayers();
+        return;
+      case 'plot':
+        this.showPlot();
+        return;
+      case 'svg':
+        this.exportSvg();
         break;
     }
     this.input.focus();
@@ -415,7 +469,9 @@ export class App {
       cursor: hideCursor || !this.cursorScreen ? null : this.vp.toWorld(this.cursorScreen[0], this.cursorScreen[1]),
       snap: hideCursor ? null : this.snap,
       box: this.box && !hideCursor ? { a: this.box.a, b: this.box.b } : null,
-      pickbox: !this.pending || this.pending.kind === 'selection',
+      pickbox: !this.pending || this.pending.kind === 'selection' || this.pending.kind === 'entity',
+      grips: !this.running,
+      hotGrip: this.hotGrip,
       pickSize: 5,
     });
   }
@@ -447,6 +503,19 @@ export class App {
 
     cv.addEventListener('pointermove', (e) => {
       const p = pos(e);
+      if (e.pointerType === 'touch' && this.touches.has(e.pointerId)) {
+        this.touches.set(e.pointerId, p);
+        if (this.touches.size === 2 && this.pinch) {
+          const [a, b] = [...this.touches.values()];
+          const d = Math.max(dist(a, b), 1);
+          const m: Vec = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+          this.vp.panPx(m[0] - this.pinch.mid[0], m[1] - this.pinch.mid[1]);
+          this.vp.zoomAt(m[0], m[1], d / this.pinch.d);
+          this.pinch = { d, mid: m };
+          this.redraw();
+          return;
+        }
+      }
       if (this.pan) {
         this.vp.panPx(p[0] - this.pan.last[0], p[1] - this.pan.last[1]);
         this.pan.last = p;
@@ -471,6 +540,17 @@ export class App {
 
     cv.addEventListener('pointerdown', (e) => {
       const p = pos(e);
+      if (e.pointerType === 'touch') {
+        this.touches.set(e.pointerId, p);
+        if (this.touches.size === 2) {
+          // Hai ngón: chụm để zoom, kéo để di chuyển màn hình.
+          const [a, b] = [...this.touches.values()];
+          this.pinch = { d: Math.max(dist(a, b), 1), mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] };
+          this.box = null;
+          this.redraw();
+          return;
+        }
+      }
       this.cursorScreen = p;
       if (e.button === 1 || (e.button === 0 && this.spaceDown)) {
         e.preventDefault();
@@ -486,7 +566,17 @@ export class App {
       if (e.pointerType === 'mouse') this.input.focus();
     });
 
+    const endTouch = (e: PointerEvent) => {
+      this.touches.delete(e.pointerId);
+      if (this.touches.size < 2) this.pinch = null;
+    };
+    cv.addEventListener('pointercancel', endTouch);
     cv.addEventListener('pointerup', (e) => {
+      if (e.pointerType === 'touch') {
+        const wasPinch = !!this.pinch;
+        endTouch(e);
+        if (wasPinch) return;
+      }
       if (this.pan && (e.button === 1 || e.button === 0)) {
         this.pan = null;
         return;
@@ -546,7 +636,7 @@ export class App {
         hov = e.id;
       }
     }
-    const picking = !this.pending || this.pending.kind === 'selection';
+    const picking = !this.pending || this.pending.kind === 'selection' || this.pending.kind === 'entity';
     this.hover = picking ? hov : null;
 
     // Bắt điểm (chỉ khi lệnh đang hỏi điểm).
@@ -564,6 +654,15 @@ export class App {
         }
       }
     }
+    const base = this.pending?.tempBase ?? this.pending?.base;
+    if (base)
+      for (const e of near) {
+        const q = perpendicularFoot(e, base, w);
+        if (q && dist(q, w) < bd * 0.8) {
+          bd = dist(q, w);
+          best = { p: q, kind: 'perp' };
+        }
+      }
     const cand = near.filter((e) => distanceTo(e, w) < stol).slice(0, 25);
     for (let i = 0; i < cand.length; i++)
       for (let j = i + 1; j < cand.length; j++)
@@ -580,9 +679,23 @@ export class App {
   private leftDown(p: Vec, shift: boolean): void {
     const pd = this.pending;
     const w = this.effectivePoint();
+    if (pd?.kind === 'entity') {
+      if (this.hover !== null) this.resolvePending({ id: this.hover, p: this.vp.toWorld(p[0], p[1]) });
+      else this.print('Hãy bấm trúng một đối tượng');
+      return;
+    }
     if (pd && pd.kind !== 'selection' && pd.kind !== 'string') {
       this.acceptPoint(w);
       return;
+    }
+    // Bấm vào grip của đối tượng đang chọn → sửa nhanh.
+    if (!this.running && this.selection.size && this.selection.size <= 200) {
+      for (const id of this.selection) {
+        const e = this.doc.get(id);
+        if (!e || !this.doc.isEditable(e)) continue;
+        const gi = gripPoints(e).findIndex((g) => dist(this.vp.toScreen(g), p) <= 6);
+        if (gi >= 0) return void this.startGrip(id, gi);
+      }
     }
     // Đang kéo khung theo kiểu bấm-bấm → lần bấm thứ hai kết thúc.
     if (this.box) {
@@ -629,8 +742,8 @@ export class App {
   private bindKeys(): void {
     window.addEventListener('keydown', (e) => {
       if (e.key === ' ' && document.activeElement !== this.input) this.spaceDown = true;
-      const inDialog = (e.target as HTMLElement).closest?.('dialog');
-      if (inDialog) return;
+      // Đang mở hộp thoại: để hộp thoại tự xử lý phím (Esc đóng hộp).
+      if (this.root.querySelector('dialog[open]')) return;
       const mod = e.ctrlKey || e.metaKey;
       if (e.key === 'F1') {
         e.preventDefault();
@@ -650,6 +763,9 @@ export class App {
       } else if (mod && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
         e.preventDefault();
         this.redo();
+      } else if (mod && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        this.showPlot();
       } else if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault();
         this.saveDxf();
@@ -713,6 +829,8 @@ export class App {
       if (up === 'REDO') return void this.redo();
       if (up === 'HELP' || up === '?') return void this.showHelp();
       if (up === 'NEW') return void this.action('new');
+      if (up === 'PLOT' || up === 'PRINT' || up === 'EXPORTPDF') return void this.showPlot();
+      if (up === 'LAYERS' || up === 'LAYMAN' || up === 'LA' || up === 'LAYER') return void this.showLayers();
       if (up === 'OPEN') return void this.action('open');
       if (up === 'SAVE' || up === 'SAVEAS' || up === 'QSAVE') return void this.saveDxf();
       this.cmdHistory.push(text);
@@ -731,6 +849,10 @@ export class App {
     }
 
     switch (pd.kind) {
+      case 'entity':
+        if (!text) return this.resolvePending(null);
+        this.print('Bấm vào một đối tượng trên màn hình (Enter để kết thúc)');
+        return;
       case 'selection': {
         if (!text) return this.resolvePending([...this.selection]);
         const up = text.toUpperCase();
@@ -817,6 +939,7 @@ export class App {
     getAngle: (msg, o) => this.request('angle', msg, { base: o.base, def: o.def, preview: o.preview }),
     getString: (msg, o = {}) => this.request('string', msg, { def: o.def, spaces: o.spaces }),
     getSelection: (msg, o = {}) => this.request('selection', msg, { single: o.single }),
+    getEntity: (msg, o = {}) => this.request('entity', msg, { keywords: o.keywords, allowNone: true }),
     print: (m) => this.print(m),
   };
 
@@ -831,9 +954,14 @@ export class App {
       return;
     }
     this.lastCmd = def.name;
-    this.runningName = def.name;
     this.echo(def.name, true);
-    this.running = runInteractive(this.reg, this.ctx, this.io, def.name)
+    this.launch(def.name, () => runInteractive(this.reg, this.ctx, this.io, def.name));
+  }
+
+  /** Chạy một luồng tương tác (lệnh hoặc sửa grip) với vòng đời chung. */
+  private launch(name: string, flow: () => Promise<void>): void {
+    this.runningName = name;
+    this.running = flow()
       .catch((e) => {
         if (!(e instanceof CancelError)) this.print(`Lỗi: ${(e as Error).message}`);
       })
@@ -844,9 +972,28 @@ export class App {
         this.snap = null;
         this.box = null;
         this.selection.clear();
+        this.hotGrip = null;
         this.updatePrompt();
         this.redraw();
       });
+  }
+
+  /** Kéo grip: bấm điểm mới (có bắt điểm, ORTHO, nhập toạ độ). */
+  private startGrip(id: number, i: number): void {
+    const e = this.doc.get(id);
+    if (!e) return;
+    const base = gripPoints(e)[i];
+    this.hotGrip = { id, i };
+    this.launch('GRIP', async () => {
+      const to = await this.io.getPoint('Điểm mới cho grip', {
+        base,
+        preview: (c) => {
+          const { id: _id, ...rest } = applyGrip(e, i, c);
+          return [rest as NewEntity];
+        },
+      });
+      if (Array.isArray(to)) this.api.run('GRIPEDIT', { id, index: i, to });
+    });
   }
 
   cancel(): void {
@@ -904,13 +1051,7 @@ export class App {
   // ---------- File & lưu tạm ----------
 
   private saveDxf(): void {
-    const text = writeDxf(this.doc.toData());
-    const blob = new Blob([text], { type: 'application/dxf' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = this.fileName;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    this.download(writeDxf(this.doc.toData()), this.fileName, 'application/dxf');
     this.doc.dirty = false;
     this.print(`Đã lưu ${this.fileName} (${this.doc.entities.size} đối tượng).`);
   }
@@ -933,6 +1074,183 @@ export class App {
     } catch {
       return false;
     }
+  }
+
+  // ---------- Quản lý layer ----------
+
+  private showLayers(): void {
+    const dlg = this.root.querySelector<HTMLDialogElement>('#layers')!;
+    const fg = THEMES[this.themeName].fg;
+    const render = () => {
+      const counts = new Map<string, number>();
+      for (const e of this.doc.all()) counts.set(e.layer, (counts.get(e.layer) ?? 0) + 1);
+      const lts = [...this.doc.linetypes.keys()];
+      const rows = [...this.doc.layers.values()]
+        .sort((a, b) => (a.name === '0' ? -1 : b.name === '0' ? 1 : a.name.localeCompare(b.name, 'vi')))
+        .map((l) => {
+          const cur = l.name === this.doc.currentLayer;
+          const n = escapeHtml(l.name);
+          return `<tr data-layer="${n}" class="${cur ? 'cur' : ''}">
+            <td><button class="mini" data-op="current" title="Đặt làm hiện hành">${cur ? '●' : '○'}</button></td>
+            <td class="name">${n}</td>
+            <td><button class="mini" data-op="visible" aria-pressed="${l.visible}" title="Bật/tắt">${l.visible ? 'Bật' : 'Tắt'}</button></td>
+            <td><button class="mini" data-op="locked" aria-pressed="${l.locked}" title="Khoá/mở">${l.locked ? 'Khoá' : 'Mở'}</button></td>
+            <td><span class="swatch" style="background:${aciToCss(l.color, fg)}"></span><input class="color" type="number" min="1" max="255" value="${l.color}" data-op="color" aria-label="Màu ACI" /></td>
+            <td><select data-op="linetype" aria-label="Kiểu đường">${lts.map((t) => `<option ${t === (l.lt ?? 'CONTINUOUS') ? 'selected' : ''}>${t}</option>`).join('')}</select></td>
+            <td class="num">${counts.get(l.name) ?? 0}</td>
+            <td><button class="mini" data-op="rename" title="Đổi tên">Đổi tên</button><button class="mini danger" data-op="delete" title="Xoá layer và đối tượng trên đó">Xoá</button></td>
+          </tr>`;
+        })
+        .join('');
+      dlg.innerHTML = `
+        <div class="help layers">
+          <header><h2>Quản lý layer</h2><button class="close" aria-label="Đóng">✕</button></header>
+          <form class="newlayer"><input name="name" placeholder="Tên layer mới" aria-label="Tên layer mới" required />
+            <input name="color" type="number" min="1" max="255" value="7" aria-label="Màu ACI" />
+            <button type="submit">Thêm</button></form>
+          <div class="tablewrap"><table>
+            <thead><tr><th></th><th>Tên</th><th>Hiện</th><th>Khoá</th><th>Màu</th><th>Kiểu đường</th><th>Số ĐT</th><th></th></tr></thead>
+            <tbody>${rows}</tbody></table></div>
+          <p class="note">Màu theo mã ACI: 1 đỏ · 2 vàng · 3 xanh lá · 4 lục lam · 5 xanh dương · 6 tím · 7 trắng/đen · 8–9 xám.
+          LTSCALE hiện tại: ${this.doc.ltscale} (đổi bằng lệnh LTSCALE).</p>
+        </div>`;
+      dlg.querySelector('.close')!.addEventListener('click', () => dlg.close());
+      dlg.querySelector<HTMLFormElement>('.newlayer')!.addEventListener('submit', (ev) => {
+        ev.preventDefault();
+        const f = new FormData(ev.target as HTMLFormElement);
+        this.tryRun('LAYER', { name: String(f.get('name')).trim(), color: Number(f.get('color')) || 7, current: false });
+        render();
+      });
+      dlg.querySelectorAll<HTMLElement>('[data-op]').forEach((el) => {
+        const tr = el.closest<HTMLElement>('tr')!;
+        const name = this.doc.layers.has(tr.dataset.layer!) ? tr.dataset.layer! : [...this.doc.layers.keys()].find((k) => escapeHtml(k) === tr.dataset.layer)!;
+        const l = this.doc.layers.get(name)!;
+        const op = el.dataset.op!;
+        const evName = el.tagName === 'BUTTON' ? 'click' : 'change';
+        el.addEventListener(evName, () => {
+          if (op === 'current') this.tryRun('LAYER', { name });
+          else if (op === 'visible') this.tryRun('LAYER', { name, visible: !l.visible, current: false });
+          else if (op === 'locked') this.tryRun('LAYER', { name, locked: !l.locked, current: false });
+          else if (op === 'color') this.tryRun('LAYER', { name, color: Number((el as HTMLInputElement).value), current: false });
+          else if (op === 'linetype') this.tryRun('LAYER', { name, linetype: (el as HTMLSelectElement).value, current: false });
+          else if (op === 'rename') {
+            const to = prompt(`Tên mới cho layer "${name}"`, name);
+            if (to && to !== name) this.tryRun('LAYER', { name, newName: to });
+          } else if (op === 'delete') {
+            const n = this.doc.all().filter((e) => e.layer === name).length;
+            if (confirm(`Xoá layer "${name}"${n ? ` và ${n} đối tượng trên đó` : ''}? (có thể hoàn tác bằng U)`)) this.tryRun('LAYDEL', { name });
+          }
+          render();
+        });
+      });
+    };
+    render();
+    dlg.addEventListener('close', () => this.input.focus(), { once: true });
+    if (!dlg.open) dlg.showModal();
+  }
+
+  private tryRun(cmd: string, args: Record<string, unknown>): void {
+    try {
+      const r = this.api.run(cmd, args);
+      if (r.message) this.print(r.message);
+    } catch (e) {
+      this.print((e as Error).message);
+      alert((e as Error).message);
+    }
+  }
+
+  // ---------- In / xuất ----------
+
+  private plotArea(which: string): { minX: number; minY: number; maxX: number; maxY: number } | null {
+    if (which === 'view') return this.vp.worldBox();
+    return this.doc.extents();
+  }
+
+  private showPlot(): void {
+    const dlg = this.root.querySelector<HTMLDialogElement>('#plot')!;
+    dlg.innerHTML = `
+      <form class="help plot" method="dialog">
+        <header><h2>In / xuất PDF</h2><button type="button" class="close" aria-label="Đóng">✕</button></header>
+        <div class="grid">
+          <label>Khổ giấy <select name="paper">${Object.keys(PAPERS).map((k) => `<option ${k === 'A3' ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
+          <label>Hướng <select name="orient"><option value="l">Ngang</option><option value="p">Dọc</option></select></label>
+          <label>Vùng in <select name="area"><option value="extents">Toàn bộ bản vẽ</option><option value="view">Khung nhìn hiện tại</option></select></label>
+          <label>Tỉ lệ 1: <input name="scale" type="number" min="0" step="any" placeholder="vừa khổ" /></label>
+          <label>Nét (mm) <input name="lw" type="number" min="0.05" step="0.05" value="0.18" /></label>
+          <label class="check"><input name="mono" type="checkbox" checked /> In đen trắng</label>
+        </div>
+        <p class="note" id="plotinfo"></p>
+        <div class="buttons"><button type="button" data-do="svg">Tải SVG</button><button type="button" data-do="print" class="primary">In / Lưu PDF…</button></div>
+        <p class="note">Ở hộp thoại in của trình duyệt, chọn máy in hoặc “Lưu dưới dạng PDF”, đặt lề = Không, tỉ lệ = 100%.</p>
+      </form>`;
+    const form = dlg.querySelector('form')!;
+    const read = () => {
+      const f = new FormData(form);
+      const box = this.plotArea(String(f.get('area')));
+      if (!box) return null;
+      const sc = Number(f.get('scale'));
+      return plotSvg(this.doc, {
+        box,
+        paper: String(f.get('paper')) as keyof typeof PAPERS,
+        landscape: f.get('orient') === 'l',
+        ...(sc > 0 ? { scale: sc } : {}),
+        mono: f.get('mono') === 'on',
+        lineMm: Number(f.get('lw')) || 0.18,
+        aci: (i) => aciToCss(i, '#000'),
+      });
+    };
+    const info = () => {
+      const r = read();
+      dlg.querySelector('#plotinfo')!.textContent = r
+        ? `Khổ ${fmt(r.widthMm)} × ${fmt(r.heightMm)} mm · tỉ lệ thực tế 1:${fmt(r.scale)}${this.doc.units !== 'mm' ? ` (đơn vị bản vẽ: ${this.doc.units})` : ''}`
+        : 'Bản vẽ trống';
+    };
+    form.addEventListener('input', info);
+    info();
+    dlg.querySelector('.close')!.addEventListener('click', () => dlg.close());
+    dlg.querySelector('[data-do="svg"]')!.addEventListener('click', () => {
+      const r = read();
+      if (r) this.download(r.svg, this.fileName.replace(/\.dxf$/i, '.svg'), 'image/svg+xml');
+    });
+    dlg.querySelector('[data-do="print"]')!.addEventListener('click', () => {
+      const r = read();
+      if (!r) return;
+      dlg.close();
+      this.printSvg(r.svg, r.widthMm, r.heightMm);
+    });
+    dlg.addEventListener('close', () => this.input.focus(), { once: true });
+    dlg.showModal();
+  }
+
+  private printSvg(svg: string, w: number, h: number): void {
+    const frame = this.root.querySelector<HTMLIFrameElement>('#printframe')!;
+    const d = frame.contentDocument!;
+    d.open();
+    d.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(this.fileName)}</title>
+      <style>@page{size:${w}mm ${h}mm;margin:0}html,body{margin:0;padding:0}svg{display:block;width:${w}mm;height:${h}mm}</style>
+      </head><body>${svg}</body></html>`);
+    d.close();
+    setTimeout(() => {
+      frame.contentWindow!.focus();
+      frame.contentWindow!.print();
+    }, 100);
+  }
+
+  private exportSvg(): void {
+    const box = this.doc.extents();
+    if (!box) return this.print('Bản vẽ trống');
+    const r = plotSvg(this.doc, { box, paper: 'A3', landscape: true, mono: false, aci: (i) => aciToCss(i, '#000') });
+    this.download(r.svg, this.fileName.replace(/\.dxf$/i, '.svg'), 'image/svg+xml');
+    this.print(`Đã xuất SVG (vừa khổ A3, tỉ lệ 1:${fmt(r.scale)})`);
+  }
+
+  private download(content: string, name: string, type: string): void {
+    const blob = new Blob([content], { type });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
 
   // ---------- Trợ giúp ----------

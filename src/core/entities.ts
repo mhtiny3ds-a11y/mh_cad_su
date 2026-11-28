@@ -10,6 +10,7 @@ import {
   boxAdd,
   boxInside,
   boxOverlap,
+  boxUnion,
   circleCircleIntersections,
   closestOnSegment,
   deg2rad,
@@ -27,12 +28,15 @@ import {
   segTouchesBox,
   sub,
 } from './geom';
+import { dimGeometry, dimText, measure } from './dim';
 
 interface Base {
   id: number;
   layer: string;
   /** Mã màu ACI. Không có = theo layer (ByLayer). */
   color?: number;
+  /** Kiểu đường. Không có = theo layer. */
+  lt?: string;
 }
 
 export interface LineEnt extends Base {
@@ -56,6 +60,8 @@ export interface PolylineEnt extends Base {
   type: 'LWPOLYLINE';
   pts: Vec[];
   closed: boolean;
+  /** Tô đặc (mũi tên kích thước, SOLID nhập từ DXF). */
+  fill?: boolean;
 }
 export interface TextEnt extends Base {
   type: 'TEXT';
@@ -63,14 +69,100 @@ export interface TextEnt extends Base {
   h: number;
   text: string;
   rot: number;
+  /** Căn ngang: L trái (mặc định), C giữa, R phải. */
+  ha?: 'L' | 'C' | 'R';
+  /** Căn dọc: B chân chữ (mặc định), M giữa, T đỉnh chữ. */
+  va?: 'B' | 'M' | 'T';
 }
 
-export type Entity = LineEnt | CircleEnt | ArcEnt | PolylineEnt | TextEnt;
+export interface DimStyle {
+  txt: number;
+  asz: number;
+  exo: number;
+  exe: number;
+  gap: number;
+  dec: number;
+}
+
+export type DimKind = 'linear' | 'aligned' | 'radius' | 'diameter' | 'angular';
+
+/**
+ * Kích thước. Ý nghĩa của pts theo kind:
+ *  - linear / aligned: [điểm 1, điểm 2, vị trí đường kích thước]; linear có rot (0° = ngang, 90° = đứng)
+ *  - radius: [tâm, điểm trên đường tròn] · diameter: [điểm 1, điểm đối diện]
+ *  - angular: [đỉnh góc, điểm trên cạnh 1, điểm trên cạnh 2, vị trí cung]
+ */
+export interface DimEnt extends Base {
+  type: 'DIMENSION';
+  kind: DimKind;
+  pts: Vec[];
+  rot?: number;
+  /** Ghi đè chữ; "<>" là giá trị đo. */
+  text?: string;
+  style: DimStyle;
+}
+
+export interface InsertEnt extends Base {
+  type: 'INSERT';
+  name: string;
+  p: Vec;
+  sx: number;
+  sy: number;
+  rot: number;
+}
+
+export type Entity = LineEnt | CircleEnt | ArcEnt | PolylineEnt | TextEnt | DimEnt | InsertEnt;
 export type EntityType = Entity['type'];
 /** Đối tượng chưa có id (dùng khi tạo mới). */
 export type NewEntity = Entity extends infer E ? (E extends Entity ? Omit<E, 'id'> : never) : never;
+type AnyEnt = Entity | NewEntity;
 
-export const ENTITY_TYPES: EntityType[] = ['LINE', 'CIRCLE', 'ARC', 'LWPOLYLINE', 'TEXT'];
+export const ENTITY_TYPES: EntityType[] = ['LINE', 'CIRCLE', 'ARC', 'LWPOLYLINE', 'TEXT', 'DIMENSION', 'INSERT'];
+
+// ---------- Block ----------
+
+export interface BlockDef {
+  name: string;
+  base: Vec;
+  ents: NewEntity[];
+}
+
+// Bản vẽ đang dùng đăng ký hàm tra block (một trang chỉ có một bản vẽ hoạt động).
+let blockLookup: (name: string) => BlockDef | undefined = () => undefined;
+export function setBlockLookup(fn: (name: string) => BlockDef | undefined): void {
+  blockLookup = fn;
+}
+export const getBlock = (name: string): BlockDef | undefined => blockLookup(name);
+
+/** Đặt một đối tượng của block vào vị trí của INSERT. */
+export function placeInBlock<E extends AnyEnt>(e: E, ins: Pick<InsertEnt, 'p' | 'sx' | 'sy' | 'rot'>, base: Vec): E {
+  let t: AnyEnt = moveEnt(e, [-base[0], -base[1]]);
+  t = scaleXY(t, ins.sx, ins.sy);
+  t = rotateEnt(t, [0, 0], ins.rot);
+  return moveEnt(t, ins.p) as E;
+}
+
+/**
+ * Phân rã đối tượng phức (INSERT, DIMENSION) thành đối tượng cơ bản để vẽ, chọn, bắt điểm.
+ * Đối tượng cơ bản trả về chính nó.
+ */
+export function expand(e: AnyEnt, depth = 0): NewEntity[] {
+  if (e.type === 'DIMENSION') return dimGeometry(e);
+  if (e.type !== 'INSERT') return [e as NewEntity];
+  if (depth > 8) return [];
+  const b = blockLookup(e.name);
+  if (!b) return [];
+  const out: NewEntity[] = [];
+  for (const x of b.ents) {
+    const placed = placeInBlock(x, e, b.base);
+    // Đối tượng ở layer "0" và màu ByBlock trong block lấy theo INSERT.
+    const inherit = placed.layer === '0' ? { ...placed, layer: e.layer, ...(placed.color === undefined && e.color !== undefined ? { color: e.color } : {}) } : placed;
+    out.push(...expand(inherit as NewEntity, depth + 1));
+  }
+  return out;
+}
+
+const isComplex = (e: AnyEnt): boolean => e.type === 'INSERT' || e.type === 'DIMENSION';
 
 // ---------- Phân rã thành nguyên tố hình học ----------
 
@@ -78,24 +170,28 @@ export type Prim =
   | { k: 'seg'; a: Vec; b: Vec }
   | { k: 'arc'; c: Vec; r: number; start: number; end: number; full: boolean };
 
-export function polySegments(e: PolylineEnt): [Vec, Vec][] {
+export function polySegments(e: Pick<PolylineEnt, 'pts' | 'closed'>): [Vec, Vec][] {
   const out: [Vec, Vec][] = [];
   for (let i = 0; i + 1 < e.pts.length; i++) out.push([e.pts[i], e.pts[i + 1]]);
   if (e.closed && e.pts.length > 2) out.push([e.pts[e.pts.length - 1], e.pts[0]]);
   return out;
 }
 
-/** Hộp bao quanh chữ (xấp xỉ: mỗi ký tự rộng 0,6 lần chiều cao). */
-export function textCorners(e: TextEnt): Vec[] {
+/** Bốn góc khung chữ (xấp xỉ: mỗi ký tự rộng 0,6 lần chiều cao). */
+export function textCorners(e: Pick<TextEnt, 'p' | 'h' | 'text' | 'rot' | 'ha' | 'va'>): Vec[] {
   const w = Math.max(1, e.text.length) * e.h * 0.6;
   const r = deg2rad(e.rot);
-  const p0 = e.p;
+  const dx = e.ha === 'C' ? -w / 2 : e.ha === 'R' ? -w : 0;
+  const dy = e.va === 'M' ? -e.h / 2 : e.va === 'T' ? -e.h : 0;
+  const along: Vec = [Math.cos(r), Math.sin(r)];
+  const up: Vec = [-Math.sin(r), Math.cos(r)];
+  const p0: Vec = [e.p[0] + along[0] * dx + up[0] * dy, e.p[1] + along[1] * dx + up[1] * dy];
   const p1 = polar(p0, r, w);
-  const up: Vec = [-Math.sin(r) * e.h, Math.cos(r) * e.h];
-  return [p0, p1, add(p1, up), add(p0, up)];
+  const h: Vec = [up[0] * e.h, up[1] * e.h];
+  return [p0, p1, add(p1, h), add(p0, h)];
 }
 
-export function prims(e: Entity): Prim[] {
+export function prims(e: AnyEnt): Prim[] {
   switch (e.type) {
     case 'LINE':
       return [{ k: 'seg', a: e.a, b: e.b }];
@@ -109,6 +205,8 @@ export function prims(e: Entity): Prim[] {
       const c = textCorners(e);
       return c.map((p, i) => ({ k: 'seg' as const, a: p, b: c[(i + 1) % 4] }));
     }
+    default:
+      return expand(e).flatMap((x) => (x.type === 'TEXT' ? [] : prims(x)));
   }
 }
 
@@ -127,7 +225,7 @@ function primIntersections(p: Prim, q: Prim): Vec[] {
   return [];
 }
 
-export function intersections(e1: Entity, e2: Entity): Vec[] {
+export function intersections(e1: AnyEnt, e2: AnyEnt): Vec[] {
   if (e1.type === 'TEXT' || e2.type === 'TEXT') return [];
   const out: Vec[] = [];
   for (const p of prims(e1)) for (const q of prims(e2)) out.push(...primIntersections(p, q));
@@ -136,11 +234,11 @@ export function intersections(e1: Entity, e2: Entity): Vec[] {
 
 // ---------- Hộp bao ----------
 
-export function arcEndpoints(e: ArcEnt): [Vec, Vec] {
+export function arcEndpoints(e: Pick<ArcEnt, 'c' | 'r' | 'start' | 'end'>): [Vec, Vec] {
   return [polar(e.c, deg2rad(e.start), e.r), polar(e.c, deg2rad(e.end), e.r)];
 }
 
-export function bbox(e: Entity): BBox {
+export function bbox(e: AnyEnt): BBox {
   const b = emptyBox();
   switch (e.type) {
     case 'LINE':
@@ -163,19 +261,39 @@ export function bbox(e: Entity): BBox {
     case 'TEXT':
       for (const p of textCorners(e)) boxAdd(b, p);
       break;
+    default: {
+      let u = b;
+      for (const x of expand(e)) u = boxUnion(u, bbox(x));
+      if (e.type === 'INSERT') boxAdd(u, e.p);
+      return u;
+    }
   }
   return b;
 }
 
 // ---------- Chọn đối tượng ----------
 
+export function pointInPolygon(p: Vec, poly: readonly Vec[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i];
+    const [xj, yj] = poly[j];
+    if (yi > p[1] !== yj > p[1] && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
 /** Khoảng cách từ điểm p tới đối tượng (dùng khi bấm chọn). */
-export function distanceTo(e: Entity, p: Vec): number {
+export function distanceTo(e: AnyEnt, p: Vec): number {
   if (e.type === 'TEXT') {
     const c = textCorners(e);
-    // Bấm vào trong khung chữ cũng tính là trúng.
-    const inside = pointInPolygon(p, c);
-    return inside ? 0 : Math.min(...c.map((q, i) => distToSegment(p, q, c[(i + 1) % 4])));
+    return pointInPolygon(p, c) ? 0 : Math.min(...c.map((q, i) => distToSegment(p, q, c[(i + 1) % 4])));
+  }
+  if (e.type === 'LWPOLYLINE' && e.fill && pointInPolygon(p, e.pts)) return 0;
+  if (isComplex(e)) {
+    let best = Infinity;
+    for (const x of expand(e)) best = Math.min(best, distanceTo(x, p));
+    return best;
   }
   let best = Infinity;
   for (const pr of prims(e)) {
@@ -193,34 +311,25 @@ export function distanceTo(e: Entity, p: Vec): number {
   return best;
 }
 
-export function pointInPolygon(p: Vec, poly: Vec[]): boolean {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [xi, yi] = poly[i];
-    const [xj, yj] = poly[j];
-    if (yi > p[1] !== yj > p[1] && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
-}
-
 /** Chọn kiểu Window (nằm trọn trong khung). */
-export const insideBox = (e: Entity, box: BBox): boolean => boxInside(bbox(e), box);
+export const insideBox = (e: AnyEnt, box: BBox): boolean => boxInside(bbox(e), box);
 
 /** Chọn kiểu Crossing (nằm trong hoặc cắt khung). */
-export function touchesBox(e: Entity, box: BBox): boolean {
+export function touchesBox(e: AnyEnt, box: BBox): boolean {
   if (!boxOverlap(bbox(e), box)) return false;
   if (insideBox(e, box)) return true;
+  if (isComplex(e)) return expand(e).some((x) => touchesBox(x, box));
+  const corners: Vec[] = [
+    [box.minX, box.minY],
+    [box.maxX, box.minY],
+    [box.maxX, box.maxY],
+    [box.minX, box.maxY],
+  ];
   for (const pr of prims(e)) {
     if (pr.k === 'seg') {
       if (segTouchesBox(pr.a, pr.b, box)) return true;
     } else {
-      const c: Vec[] = [
-        [box.minX, box.minY],
-        [box.maxX, box.minY],
-        [box.maxX, box.maxY],
-        [box.minX, box.maxY],
-      ];
-      for (let i = 0; i < 4; i++) if (primIntersections({ k: 'seg', a: c[i], b: c[(i + 1) % 4] }, pr).length) return true;
+      for (let i = 0; i < 4; i++) if (primIntersections({ k: 'seg', a: corners[i], b: corners[(i + 1) % 4] }, pr).length) return true;
     }
   }
   return false;
@@ -228,13 +337,13 @@ export function touchesBox(e: Entity, box: BBox): boolean {
 
 // ---------- Điểm bắt (object snap) ----------
 
-export type SnapKind = 'end' | 'mid' | 'center' | 'quad' | 'int' | 'near' | 'insert';
+export type SnapKind = 'end' | 'mid' | 'center' | 'quad' | 'int' | 'near' | 'insert' | 'perp' | 'node';
 export interface SnapPoint {
   p: Vec;
   kind: SnapKind;
 }
 
-export function snapPoints(e: Entity): SnapPoint[] {
+export function snapPoints(e: AnyEnt): SnapPoint[] {
   const out: SnapPoint[] = [];
   switch (e.type) {
     case 'LINE':
@@ -262,12 +371,19 @@ export function snapPoints(e: Entity): SnapPoint[] {
     case 'TEXT':
       out.push({ p: e.p, kind: 'insert' });
       break;
+    case 'DIMENSION':
+      for (const p of e.pts) out.push({ p, kind: 'node' });
+      break;
+    case 'INSERT':
+      out.push({ p: e.p, kind: 'insert' });
+      for (const x of expand(e)) out.push(...snapPoints(x));
+      break;
   }
   return out;
 }
 
 /** Điểm gần nhất trên đối tượng (snap Nearest). */
-export function nearestOn(e: Entity, p: Vec): Vec | null {
+export function nearestOn(e: AnyEnt, p: Vec): Vec | null {
   let best: Vec | null = null;
   let bd = Infinity;
   for (const pr of prims(e)) {
@@ -286,63 +402,221 @@ export function nearestOn(e: Entity, p: Vec): Vec | null {
   return best;
 }
 
+/** Chân đường vuông góc hạ từ `from` xuống đối tượng (snap Perpendicular). */
+export function perpendicularFoot(e: AnyEnt, from: Vec, near: Vec): Vec | null {
+  let best: Vec | null = null;
+  let bd = Infinity;
+  for (const pr of prims(e)) {
+    let q: Vec | null = null;
+    if (pr.k === 'seg') {
+      const d = sub(pr.b, pr.a);
+      const l2 = d[0] * d[0] + d[1] * d[1];
+      if (l2 < 1e-18) continue;
+      const t = ((from[0] - pr.a[0]) * d[0] + (from[1] - pr.a[1]) * d[1]) / l2;
+      if (t < -1e-9 || t > 1 + 1e-9) continue;
+      q = [pr.a[0] + d[0] * t, pr.a[1] + d[1] * t];
+    } else {
+      const ang = angleOf(sub(from, pr.c));
+      for (const a of [ang, ang + Math.PI]) {
+        const x = polar(pr.c, a, pr.r);
+        if (onArc(x, pr) && (!q || dist(x, near) < dist(q, near))) q = x;
+      }
+    }
+    if (q) {
+      const d = dist(q, near);
+      if (d < bd) {
+        bd = d;
+        best = q;
+      }
+    }
+  }
+  return best;
+}
+
+// ---------- Grip (điểm nắm để sửa nhanh) ----------
+
+export function gripPoints(e: AnyEnt): Vec[] {
+  switch (e.type) {
+    case 'LINE':
+      return [e.a, mid(e.a, e.b), e.b];
+    case 'CIRCLE':
+      return [e.c, ...[0, 90, 180, 270].map((q) => polar(e.c, deg2rad(q), e.r))];
+    case 'ARC': {
+      const [s, en] = arcEndpoints(e);
+      const span = normDeg(e.end - e.start) || 360;
+      return [s, polar(e.c, deg2rad(e.start + span / 2), e.r), en, e.c];
+    }
+    case 'LWPOLYLINE':
+      return [...e.pts];
+    case 'TEXT':
+      return [e.p];
+    case 'DIMENSION':
+      return [...e.pts];
+    case 'INSERT':
+      return [e.p];
+  }
+}
+
+/** Kéo grip thứ i tới điểm to. */
+export function applyGrip<E extends AnyEnt>(e: E, i: number, to: Vec): E {
+  switch (e.type) {
+    case 'LINE':
+      if (i === 0) return { ...e, a: to };
+      if (i === 2) return { ...e, b: to };
+      return moveEnt(e, sub(to, mid(e.a, e.b)));
+    case 'CIRCLE':
+      if (i === 0) return { ...e, c: to };
+      return { ...e, r: Math.max(dist(e.c, to), 1e-9) };
+    case 'ARC': {
+      if (i === 3) return { ...e, c: to };
+      const g = gripPoints(e);
+      const pts = [g[0], g[1], g[2]];
+      pts[i] = to;
+      const c3 = circle3(pts[0], pts[1], pts[2]);
+      if (!c3) return e;
+      const a1 = rad2deg(angleOf(sub(pts[0], c3.c)));
+      const a2 = rad2deg(angleOf(sub(pts[1], c3.c)));
+      const a3 = rad2deg(angleOf(sub(pts[2], c3.c)));
+      const ccw = normDeg(a2 - a1) <= normDeg(a3 - a1);
+      return ccw
+        ? { ...e, c: c3.c, r: c3.r, start: normDeg(a1), end: normDeg(a3) }
+        : { ...e, c: c3.c, r: c3.r, start: normDeg(a3), end: normDeg(a1) };
+    }
+    case 'LWPOLYLINE': {
+      const pts = [...e.pts];
+      pts[i] = to;
+      return { ...e, pts };
+    }
+    case 'TEXT':
+    case 'INSERT':
+      return { ...e, p: to };
+    case 'DIMENSION': {
+      const pts = [...e.pts];
+      pts[i] = to;
+      return { ...e, pts };
+    }
+  }
+  return e;
+}
+
+function circle3(p1: Vec, p2: Vec, p3: Vec): { c: Vec; r: number } | null {
+  const d = 2 * (p1[0] * (p2[1] - p3[1]) + p2[0] * (p3[1] - p1[1]) + p3[0] * (p1[1] - p2[1]));
+  if (Math.abs(d) < 1e-12) return null;
+  const a2 = p1[0] ** 2 + p1[1] ** 2;
+  const b2 = p2[0] ** 2 + p2[1] ** 2;
+  const c2 = p3[0] ** 2 + p3[1] ** 2;
+  const c: Vec = [
+    (a2 * (p2[1] - p3[1]) + b2 * (p3[1] - p1[1]) + c2 * (p1[1] - p2[1])) / d,
+    (a2 * (p3[0] - p2[0]) + b2 * (p1[0] - p3[0]) + c2 * (p2[0] - p1[0])) / d,
+  ];
+  return { c, r: dist(c, p1) };
+}
+
 // ---------- Biến đổi ----------
 
 type PtFn = (p: Vec) => Vec;
 
-function mapPoints<E extends Entity>(e: E, f: PtFn): E {
+function mapPts<E extends AnyEnt>(e: E, f: PtFn): E {
   switch (e.type) {
     case 'LINE':
       return { ...e, a: f(e.a), b: f(e.b) };
     case 'LWPOLYLINE':
+    case 'DIMENSION':
       return { ...e, pts: e.pts.map(f) };
-    default:
-      return e;
+    case 'CIRCLE':
+    case 'ARC':
+      return { ...e, c: f(e.c) };
+    case 'TEXT':
+    case 'INSERT':
+      return { ...e, p: f(e.p) };
   }
+  return e;
 }
 
-export function moveEnt<E extends Entity>(e: E, d: Vec): E {
-  const f: PtFn = (p) => add(p, d);
-  if (e.type === 'CIRCLE' || e.type === 'ARC') return { ...e, c: f(e.c) };
-  if (e.type === 'TEXT') return { ...e, p: f(e.p) };
-  return mapPoints(e, f);
+export function moveEnt<E extends AnyEnt>(e: E, d: Vec): E {
+  return mapPts(e, (p) => add(p, d));
 }
 
-export function rotateEnt<E extends Entity>(e: E, base: Vec, angleDeg: number): E {
-  const r = deg2rad(angleDeg);
-  const f: PtFn = (p) => rotate(p, base, r);
-  if (e.type === 'CIRCLE') return { ...e, c: f(e.c) };
-  if (e.type === 'ARC') return { ...e, c: f(e.c), start: normDeg(e.start + angleDeg), end: normDeg(e.end + angleDeg) };
-  if (e.type === 'TEXT') return { ...e, p: f(e.p), rot: normDeg(e.rot + angleDeg) };
-  return mapPoints(e, f);
+export function rotateEnt<E extends AnyEnt>(e: E, base: Vec, angleDeg: number): E {
+  if (!angleDeg) return e;
+  const t = mapPts(e, (p) => rotate(p, base, deg2rad(angleDeg)));
+  switch (t.type) {
+    case 'ARC':
+      return { ...t, start: normDeg(t.start + angleDeg), end: normDeg(t.end + angleDeg) };
+    case 'TEXT':
+    case 'INSERT':
+      return { ...t, rot: normDeg(t.rot + angleDeg) };
+    case 'DIMENSION':
+      return t.kind === 'linear' ? { ...t, rot: normDeg((t.rot ?? 0) + angleDeg) } : t;
+  }
+  return t;
 }
 
-export function scaleEnt<E extends Entity>(e: E, base: Vec, k: number): E {
-  const f: PtFn = (p) => scaleAbout(p, base, k);
-  if (e.type === 'CIRCLE' || e.type === 'ARC') return { ...e, c: f(e.c), r: e.r * Math.abs(k) };
-  if (e.type === 'TEXT') return { ...e, p: f(e.p), h: e.h * Math.abs(k) };
-  return mapPoints(e, f);
+export function scaleEnt<E extends AnyEnt>(e: E, base: Vec, k: number): E {
+  const t = mapPts(e, (p) => scaleAbout(p, base, k));
+  const a = Math.abs(k);
+  switch (t.type) {
+    case 'CIRCLE':
+    case 'ARC':
+      return { ...t, r: t.r * a };
+    case 'TEXT':
+      return { ...t, h: t.h * a };
+    case 'INSERT':
+      return { ...t, sx: t.sx * a, sy: t.sy * a };
+  }
+  return t;
 }
 
-export function mirrorEnt<E extends Entity>(e: E, a: Vec, b: Vec): E {
+/** Tỉ lệ theo hai trục quanh gốc toạ độ (dùng khi đặt block). Đường tròn/chữ dùng |sx|. */
+export function scaleXY<E extends AnyEnt>(e: E, sx: number, sy: number): E {
+  if (sx === 1 && sy === 1) return e;
+  let t: AnyEnt = e;
+  if (sx < 0) t = mirrorEnt(t, [0, 0], [0, 1]);
+  if (sy < 0) t = mirrorEnt(t, [0, 0], [1, 0]);
+  const ax = Math.abs(sx);
+  const ay = Math.abs(sy);
+  if (Math.abs(ax - ay) < 1e-12) return scaleEnt(t, [0, 0], ax) as E;
+  // Không đều: điểm tỉ lệ theo trục; bán kính/chiều cao lấy trung bình.
+  const m = mapPts(t, (p) => [p[0] * ax, p[1] * ay]);
+  const k = (ax + ay) / 2;
+  switch (m.type) {
+    case 'CIRCLE':
+    case 'ARC':
+      return { ...m, r: m.r * k } as E;
+    case 'TEXT':
+      return { ...m, h: m.h * ay } as E;
+    case 'INSERT':
+      return { ...m, sx: m.sx * ax, sy: m.sy * ay } as E;
+  }
+  return m as E;
+}
+
+export function mirrorEnt<E extends AnyEnt>(e: E, a: Vec, b: Vec): E {
   const f: PtFn = (p) => mirrorPoint(p, a, b);
-  if (e.type === 'CIRCLE') return { ...e, c: f(e.c) };
-  if (e.type === 'ARC') {
-    // Đối xứng đảo chiều cung: điểm cuối cũ thành điểm đầu mới.
-    const [s, en] = arcEndpoints(e);
-    const c = f(e.c);
-    return {
-      ...e,
-      c,
-      start: normDeg(rad2deg(angleOf(sub(f(en), c)))),
-      end: normDeg(rad2deg(angleOf(sub(f(s), c)))),
-    };
+  const axis = rad2deg(angleOf(sub(b, a)));
+  switch (e.type) {
+    case 'ARC': {
+      // Đối xứng đảo chiều cung: điểm cuối cũ thành điểm đầu mới.
+      const [s, en] = arcEndpoints(e);
+      const c = f(e.c);
+      return {
+        ...e,
+        c,
+        start: normDeg(rad2deg(angleOf(sub(f(en), c)))),
+        end: normDeg(rad2deg(angleOf(sub(f(s), c)))),
+      };
+    }
+    case 'TEXT':
+      // Giữ chữ đọc được (giống MIRRTEXT = 0): chỉ dời điểm chèn.
+      return { ...e, p: f(e.p) };
+    case 'INSERT':
+      return { ...e, p: f(e.p), rot: normDeg(2 * axis - e.rot), sy: -e.sy };
+    case 'DIMENSION': {
+      const pts = e.pts.map(f);
+      return e.kind === 'linear' ? { ...e, pts, rot: normDeg(2 * axis - (e.rot ?? 0)) } : { ...e, pts };
+    }
   }
-  if (e.type === 'TEXT') {
-    // Giữ chữ đọc được (giống MIRRTEXT=0): chỉ dời điểm chèn.
-    return { ...e, p: f(e.p) };
-  }
-  return mapPoints(e, f);
+  return mapPts(e, f);
 }
 
 export function normDeg(d: number): number {
@@ -356,7 +630,7 @@ export function normDeg(d: number): number {
 const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
 const fp = (p: Vec) => `${fmt(p[0])}, ${fmt(p[1])}`;
 
-export function polyLength(e: PolylineEnt): number {
+export function polyLength(e: Pick<PolylineEnt, 'pts' | 'closed'>): number {
   return polySegments(e).reduce((s, [a, b]) => s + dist(a, b), 0);
 }
 
@@ -371,20 +645,26 @@ export function polyArea(pts: readonly Vec[]): number {
 }
 
 export function describe(e: Entity): string {
-  const head = `${e.type} #${e.id} · lớp ${e.layer}${e.color !== undefined ? ` · màu ${e.color}` : ''}`;
+  const head = `${e.type} #${e.id} · lớp ${e.layer}${e.color !== undefined ? ` · màu ${e.color}` : ''}${e.lt ? ` · nét ${e.lt}` : ''}`;
   switch (e.type) {
     case 'LINE':
-      return `${head} · từ ${fp(e.a)} đến ${fp(e.b)} · dài ${fmt(dist(e.a, e.b))}`;
+      return `${head} · từ ${fp(e.a)} đến ${fp(e.b)} · dài ${fmt(dist(e.a, e.b))} · góc ${fmt(normDeg(rad2deg(angleOf(sub(e.b, e.a)))))}°`;
     case 'CIRCLE':
       return `${head} · tâm ${fp(e.c)} · R = ${fmt(e.r)} · chu vi ${fmt(2 * Math.PI * e.r)} · diện tích ${fmt(Math.PI * e.r * e.r)}`;
-    case 'ARC':
-      return `${head} · tâm ${fp(e.c)} · R = ${fmt(e.r)} · góc ${fmt(e.start)}° → ${fmt(e.end)}°`;
+    case 'ARC': {
+      const sw = normDeg(e.end - e.start) || 360;
+      return `${head} · tâm ${fp(e.c)} · R = ${fmt(e.r)} · góc ${fmt(e.start)}° → ${fmt(e.end)}° · dài cung ${fmt((sw * Math.PI * e.r) / 180)}`;
+    }
     case 'LWPOLYLINE':
       return `${head} · ${e.pts.length} đỉnh · ${e.closed ? 'kín' : 'hở'} · dài ${fmt(polyLength(e))}${
         e.closed ? ` · diện tích ${fmt(polyArea(e.pts))}` : ''
       }`;
     case 'TEXT':
       return `${head} · "${e.text}" tại ${fp(e.p)} · cao ${fmt(e.h)} · xoay ${fmt(e.rot)}°`;
+    case 'DIMENSION':
+      return `${head} · kích thước ${e.kind} · giá trị ${fmt(measure(e))} · chữ "${dimText(e)}"`;
+    case 'INSERT':
+      return `${head} · block "${e.name}" tại ${fp(e.p)} · tỉ lệ ${fmt(e.sx)} × ${fmt(e.sy)} · xoay ${fmt(e.rot)}°`;
   }
 }
 

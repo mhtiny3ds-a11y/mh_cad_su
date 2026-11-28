@@ -8,6 +8,9 @@ import { type Drawing } from './document';
 import {
   type Entity,
   type NewEntity,
+  expand,
+  getBlock,
+  placeInBlock,
   describe,
   fmtNum,
   mirrorEnt,
@@ -55,6 +58,8 @@ export interface IO {
   getDistance(msg: string, opts?: { base?: Vec; def?: number; preview?: PointOpts['preview'] }): Promise<number | null>;
   getAngle(msg: string, opts: { base: Vec; def?: number; preview?: PointOpts['preview'] }): Promise<number | null>;
   getString(msg: string, opts?: { def?: string; spaces?: boolean }): Promise<string | null>;
+  /** Bấm vào một đối tượng: trả về id và điểm bấm; Enter = null; gõ từ khoá = chuỗi. */
+  getEntity(msg: string, opts?: { keywords?: string[] }): Promise<{ id: number; p: Vec } | string | null>;
   /** single: bấm trúng một đối tượng là xong ngay. */
   getSelection(msg: string, opts?: { single?: boolean }): Promise<number[]>;
   print(msg: string): void;
@@ -86,7 +91,7 @@ export interface CommandDef {
 
 // ---------- Tiện ích đọc tham số ----------
 
-const num = (args: Args, k: string, def?: number): number => {
+export const num = (args: Args, k: string, def?: number): number => {
   const v = args[k];
   if (v === undefined || v === null) {
     if (def !== undefined) return def;
@@ -96,18 +101,18 @@ const num = (args: Args, k: string, def?: number): number => {
   if (!Number.isFinite(n)) throw new Error(`Tham số "${k}" phải là số`);
   return n;
 };
-const pt = (args: Args, k: string): Vec => {
+export const pt = (args: Args, k: string): Vec => {
   if (args[k] === undefined) throw new Error(`Thiếu tham số "${k}"`);
   return toVec(args[k], k);
 };
-const pts = (args: Args, k: string, min: number): Vec[] => {
+export const pts = (args: Args, k: string, min: number): Vec[] => {
   const v = args[k];
   if (!Array.isArray(v)) throw new Error(`Tham số "${k}" phải là mảng điểm`);
   const out = v.map((p, i) => toVec(p, `${k}[${i}]`));
   if (out.length < min) throw new Error(`"${k}" cần ít nhất ${min} điểm`);
   return out;
 };
-const str = (args: Args, k: string, def?: string): string => {
+export const str = (args: Args, k: string, def?: string): string => {
   const v = args[k];
   if (v === undefined || v === null || v === '') {
     if (def !== undefined) return def;
@@ -115,10 +120,10 @@ const str = (args: Args, k: string, def?: string): string => {
   }
   return String(v);
 };
-const optStr = (args: Args, k: string): string | undefined => (args[k] == null ? undefined : String(args[k]));
-const bool = (args: Args, k: string, def: boolean): boolean => (args[k] === undefined ? def : Boolean(args[k]));
+export const optStr = (args: Args, k: string): string | undefined => (args[k] == null ? undefined : String(args[k]));
+export const bool = (args: Args, k: string, def: boolean): boolean => (args[k] === undefined ? def : Boolean(args[k]));
 
-function ids(ctx: Ctx, args: Args): Entity[] {
+export function ids(ctx: Ctx, args: Args): Entity[] {
   const v = args.ids;
   if (!Array.isArray(v) || v.length === 0) throw new Error('Cần "ids": danh sách id đối tượng');
   return v.map((x) => {
@@ -130,21 +135,21 @@ function ids(ctx: Ctx, args: Args): Entity[] {
 }
 
 /** Thuộc tính chung: layer và màu (nếu truyền vào). */
-function props(ctx: Ctx, args: Args): { layer: string; color?: number } {
+export function props(ctx: Ctx, args: Args): { layer: string; color?: number } {
   const layer = optStr(args, 'layer') ?? ctx.doc.currentLayer;
   const color = args.color == null ? undefined : num(args, 'color');
   return color === undefined ? { layer } : { layer, color };
 }
 
-const COMMON: ParamSpec[] = [
+export const COMMON: ParamSpec[] = [
   { name: 'layer', type: 'string', desc: 'Layer (mặc định: layer hiện hành; tự tạo nếu chưa có)' },
   { name: 'color', type: 'number', desc: 'Màu ACI 1–255 (mặc định: theo layer)' },
 ];
 
-const created = (ents: Entity[], message?: string): Result => ({ ids: ents.map((e) => e.id), message });
+export const created = (ents: Entity[], message?: string): Result => ({ ids: ents.map((e) => e.id), message });
 
 /** Lấy danh sách chọn: dùng chọn sẵn nếu có, không thì hỏi. */
-async function pickSelection(ctx: Ctx, io: IO): Promise<number[]> {
+export async function pickSelection(ctx: Ctx, io: IO): Promise<number[]> {
   const pre = [...ctx.selection].filter((id) => {
     const e = ctx.doc.get(id);
     return e && ctx.doc.isEditable(e);
@@ -154,7 +159,7 @@ async function pickSelection(ctx: Ctx, io: IO): Promise<number[]> {
   return s;
 }
 
-const entsOf = (ctx: Ctx, list: number[]): Entity[] =>
+export const entsOf = (ctx: Ctx, list: number[]): Entity[] =>
   list.map((id) => ctx.doc.get(id)).filter((e): e is Entity => !!e);
 
 // ---------- Định nghĩa lệnh ----------
@@ -471,7 +476,7 @@ function transformCmd(
   return def;
 }
 
-const ghost = (sel: Entity[], f: (e: Entity) => Entity): NewEntity[] =>
+export const ghost = (sel: Entity[], f: (e: Entity) => Entity): NewEntity[] =>
   sel.map((e) => {
     const { id: _id, ...rest } = f(e);
     return rest as NewEntity;
@@ -656,18 +661,34 @@ let lastOffset = 100;
 const EXPLODE: CommandDef = {
   name: 'EXPLODE',
   aliases: ['X'],
-  desc: 'Phá đa tuyến thành các đoạn thẳng',
+  desc: 'Phá đa tuyến thành đoạn thẳng; phá block (INSERT) và kích thước thành đối tượng cơ bản',
   params: [{ name: 'ids', type: 'ids', required: true, desc: 'Danh sách id' }],
   run(ctx, args) {
     const out: Entity[] = [];
     for (const e of ids(ctx, args)) {
-      if (e.type !== 'LWPOLYLINE') continue;
-      const p = e.color === undefined ? { layer: e.layer } : { layer: e.layer, color: e.color };
-      for (const [a, b] of polySegments(e)) out.push(ctx.doc.add({ type: 'LINE', a, b, ...p }));
-      ctx.doc.remove(e.id);
+      if (e.type === 'LWPOLYLINE') {
+        const p = { layer: e.layer, ...(e.color !== undefined ? { color: e.color } : {}), ...(e.lt ? { lt: e.lt } : {}) };
+        for (const [a, b] of polySegments(e)) out.push(ctx.doc.add({ type: 'LINE', a, b, ...p }));
+        ctx.doc.remove(e.id);
+      } else if (e.type === 'INSERT' || e.type === 'DIMENSION') {
+        // Phá một cấp: block lồng nhau vẫn giữ là INSERT.
+        const parts: NewEntity[] =
+          e.type === 'DIMENSION'
+            ? expand(e)
+            : (() => {
+                const b = getBlock(e.name);
+                if (!b) throw new Error(`Không có block "${e.name}"`);
+                return b.ents.map((x) => {
+                  const placed = placeInBlock(x, e, b.base);
+                  return placed.layer === '0' ? ({ ...placed, layer: e.layer } as NewEntity) : placed;
+                });
+              })();
+        for (const x of parts) out.push(ctx.doc.add(x));
+        ctx.doc.remove(e.id);
+      }
     }
     ctx.selection.clear();
-    return created(out, `Đã tạo ${out.length} đoạn thẳng`);
+    return created(out, `Đã tạo ${out.length} đối tượng`);
   },
   async interactive(ctx, io) {
     const s = await pickSelection(ctx, io);
@@ -685,9 +706,12 @@ const LAYER: CommandDef = {
     { name: 'current', type: 'boolean', desc: 'Đặt làm layer hiện hành (mặc định: có)' },
     { name: 'visible', type: 'boolean', desc: 'Bật/tắt hiển thị' },
     { name: 'locked', type: 'boolean', desc: 'Khoá/mở khoá' },
+    { name: 'linetype', type: 'string', desc: 'Kiểu đường của layer (CONTINUOUS, DASHED, HIDDEN, CENTER, DASHDOT, DOT, PHANTOM)' },
+    { name: 'newName', type: 'string', desc: 'Đổi tên layer thành tên này' },
   ],
   run(ctx, args) {
     const name = str(args, 'name').trim();
+    if (args.newName !== undefined) return renameLayer(ctx, name, str(args, 'newName').trim());
     if (!/^[^<>/\\":;?*|=`]{1,255}$/.test(name)) throw new Error('Tên layer không hợp lệ');
     const isNew = !ctx.doc.layers.has(name);
     ctx.doc.ensureLayer(name, args.color == null ? 7 : num(args, 'color'));
@@ -695,6 +719,11 @@ const LAYER: CommandDef = {
     if (!isNew && args.color != null) patch.color = num(args, 'color');
     if (args.visible !== undefined) patch.visible = Boolean(args.visible);
     if (args.locked !== undefined) patch.locked = Boolean(args.locked);
+    if (args.linetype !== undefined) {
+      const lt = str(args, 'linetype').toUpperCase();
+      if (!ctx.doc.linetypes.has(lt)) throw new Error(`Không có kiểu đường "${lt}"`);
+      patch.lt = lt;
+    }
     if (Object.keys(patch).length) ctx.doc.setLayer(name, patch);
     if (bool(args, 'current', true)) ctx.doc.setCurrentLayer(name);
     return { name, message: `${isNew ? 'Đã tạo' : 'Đã cập nhật'} layer "${name}"` };
@@ -703,6 +732,44 @@ const LAYER: CommandDef = {
     const name = await io.getString(`Tên layer (hiện hành: ${ctx.doc.currentLayer})`, { spaces: true });
     if (!name) return;
     io.print(LAYER.run(ctx, { name }).message!);
+  },
+};
+
+function renameLayer(ctx: Ctx, from: string, to: string): Result {
+  const l = ctx.doc.layers.get(from);
+  if (!l) throw new Error(`Không có layer "${from}"`);
+  if (from === '0') throw new Error('Không đổi tên được layer 0');
+  if (!/^[^<>/\\":;?*|=`]{1,255}$/.test(to)) throw new Error('Tên layer không hợp lệ');
+  if (ctx.doc.layers.has(to)) throw new Error(`Layer "${to}" đã có`);
+  ctx.doc.ensureLayer(to, l.color);
+  ctx.doc.setLayer(to, { visible: l.visible, locked: false, ...(l.lt ? { lt: l.lt } : {}) });
+  for (const e of ctx.doc.all()) if (e.layer === from) ctx.doc.update({ ...e, layer: to });
+  if (ctx.doc.currentLayer === from) ctx.doc.setCurrentLayer(to);
+  if (l.locked) ctx.doc.setLayer(to, { locked: true });
+  ctx.doc.removeLayer(from);
+  return { name: to, message: `Đã đổi tên layer "${from}" thành "${to}"` };
+}
+
+const LAYDEL: CommandDef = {
+  name: 'LAYDEL',
+  desc: 'Xoá layer cùng mọi đối tượng trên đó (không xoá được layer 0 và layer hiện hành)',
+  params: [{ name: 'name', type: 'string', required: true, desc: 'Tên layer' }],
+  run(ctx, args) {
+    const name = str(args, 'name');
+    if (!ctx.doc.layers.has(name)) throw new Error(`Không có layer "${name}"`);
+    if (name === '0' || name === ctx.doc.currentLayer) throw new Error('Không xoá được layer 0 hoặc layer hiện hành');
+    let n = 0;
+    for (const e of ctx.doc.all())
+      if (e.layer === name) {
+        ctx.doc.remove(e.id);
+        n++;
+      }
+    ctx.doc.removeLayer(name);
+    return { message: `Đã xoá layer "${name}" và ${n} đối tượng` };
+  },
+  async interactive(ctx, io) {
+    const name = await io.getString('Tên layer cần xoá', { spaces: true });
+    if (name) io.print(LAYDEL.run(ctx, { name }).message!);
   },
 };
 
@@ -803,6 +870,7 @@ export const BUILTIN: CommandDef[] = [
   OFFSET,
   EXPLODE,
   LAYER,
+  LAYDEL,
   DIST,
   LIST,
   ZOOM,

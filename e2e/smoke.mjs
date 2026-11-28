@@ -140,6 +140,81 @@ try {
   await page.screenshot({ path: `${OUT}help.png` });
   await page.keyboard.press('Escape');
 
+  // 11. Lệnh sửa tương tác bằng chuột: TRIM, FILLET, grip, kích thước.
+  await page.evaluate(() => {
+    window.mhcad.file.newDrawing();
+    window.mhcad.batch('Dựng thử', () => {
+      window.mhcad.run('LINE', { points: [[0, 0], [6000, 0]] });
+      window.mhcad.run('LINE', { points: [[2000, -1000], [2000, 1000]] });
+      window.mhcad.run('LINE', { points: [[4000, -1000], [4000, 1000]] });
+      window.mhcad.run('LINE', { points: [[0, 3000], [2500, 3000]] });
+      window.mhcad.run('LINE', { points: [[3000, 3500], [3000, 6000]] });
+    });
+    window.mhcad.view.zoomExtents();
+  });
+  await page.waitForTimeout(50);
+  const click = async (p) => {
+    const [x, y] = await page.evaluate((q) => window.mhcad.view.toClient(q), p);
+    await page.mouse.move(x, y);
+    await page.mouse.click(x, y);
+  };
+  await type('TR');
+  await click([3000, 0]);
+  await cmd.press('Enter');
+  const trimmed = await page.evaluate(() => window.mhcad.query.entities({ type: 'LINE' }).filter((l) => l.a[1] === 0 && l.b[1] === 0).map((l) => [l.a[0], l.b[0]]));
+  check('TRIM bằng chuột cắt đoạn giữa', JSON.stringify(trimmed) === '[[0,2000],[4000,6000]]', JSON.stringify(trimmed));
+
+  await type('F');
+  await type('R', '500');
+  await type('F');
+  await click([1000, 3000]);
+  await click([3000, 5000]);
+  const arcs = await page.evaluate(() => window.mhcad.query.entities({ type: 'ARC' }));
+  check('FILLET R500 bằng chuột tạo cung', arcs.length === 1 && Math.abs(arcs[0].r - 500) < 1e-9, JSON.stringify(arcs[0]?.c));
+
+  // Grip: chọn đoạn thẳng đứng bên trái, kéo đầu trên lên (0, 2000) bằng gõ toạ độ.
+  const vid = await page.evaluate(() => window.mhcad.query.entities({ type: 'LINE' }).find((l) => l.a[0] === 2000 && l.b[0] === 2000).id);
+  await click([2000, 500]);
+  await click([2000, 1000]);
+  await type('2000,2000');
+  const vl = await page.evaluate((id) => window.mhcad.query.entity(id), vid);
+  check('Grip kéo đầu mút', vl.b[1] === 2000, JSON.stringify(vl.b));
+
+  await type('DLI', '0,0', '2000,0', '1000,-800');
+  const dims = await page.evaluate(() => window.mhcad.query.entities({ type: 'DIMENSION' }).map((d) => window.mhcad.query.describe(d.id)));
+  check('DIMLINEAR gõ toạ độ', dims.length === 1 && dims[0].includes('"2000"'), dims[0]);
+
+  // Hộp quản lý layer và hộp in.
+  await type('LA');
+  check('LA mở quản lý layer', await page.locator('dialog#layers[open]').isVisible());
+  await page.locator('dialog#layers input[name="name"]').fill('TƯỜNG');
+  await page.locator('dialog#layers .newlayer button').click();
+  const hasLayer = await page.evaluate(() => window.mhcad.query.layers().some((l) => l.name === 'TƯỜNG'));
+  check('Thêm layer từ hộp quản lý', hasLayer);
+  await page.screenshot({ path: `${OUT}layers.png` });
+  await page.keyboard.press('Escape');
+  check('Esc đóng hộp quản lý layer', !(await page.locator('dialog#layers[open]').isVisible()));
+  await page.keyboard.press('Control+p');
+  check('Ctrl+P mở hộp in', await page.locator('dialog#plot[open]').isVisible());
+  const info = await page.locator('#plotinfo').textContent();
+  check('Hộp in tính tỉ lệ', /1:\d/.test(info), info);
+  await page.keyboard.press('Escape');
+
+  // Block + kiểu đường hiển thị.
+  await page.evaluate(() => {
+    const m = window.mhcad;
+    m.run('LAYER', { name: 'TRUC', color: 1, linetype: 'CENTER' });
+    m.run('LINE', { points: [[-500, -1500], [6500, -1500]] });
+    m.run('LAYER', { name: '0' });
+    const r = m.run('RECTANG', { p1: [0, 0], p2: [900, 60] });
+    const a = m.run('ARC', { center: [0, 60], radius: 900, startAngle: 0, endAngle: 90 });
+    m.run('BLOCK', { name: 'CỬA 900', base: [0, 0], ids: [...r.ids, ...a.ids] });
+    m.run('INSERT', { name: 'CỬA 900', position: [4500, 0], rotation: 0 });
+    m.view.zoomExtents();
+  });
+  await page.mouse.move(box.x + 5, box.y + 5);
+  await page.screenshot({ path: `${OUT}v2-drawing.png` });
+
   // 10. Giao diện điện thoại.
   const phone = await browser.newPage({ viewport: { width: 390, height: 780 } });
   await phone.goto(BASE);

@@ -141,8 +141,9 @@ input:focus-visible {
 
 .toolbar {
   grid-area: tools;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, 32px);
+  align-content: start;
   gap: 2px;
   padding: 6px 4px;
   background: var(--panel);
@@ -150,9 +151,10 @@ input:focus-visible {
   overflow-y: auto;
 }
 .toolbar .sep {
-  width: 20px;
+  grid-column: 1 / -1;
+  width: 48px;
   height: 1px;
-  margin: 4px auto;
+  margin: 3px auto;
 }
 
 .stage {
@@ -329,6 +331,7 @@ dialog::backdrop {
     grid-template-areas: 'top' 'stage' 'tools' 'cmd' 'status';
   }
   .toolbar {
+    display: flex;
     flex-direction: row;
     overflow-x: auto;
     border-right: 0;
@@ -358,6 +361,107 @@ dialog::backdrop {
     min-width: 0;
   }
   .units {
+    display: none;
+  }
+}
+
+#printframe {
+  position: fixed;
+  width: 0;
+  height: 0;
+  border: 0;
+  visibility: hidden;
+}
+.mini {
+  font-size: 12px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  margin-right: 2px;
+}
+.mini.danger {
+  color: #ef4444;
+}
+.layers .tablewrap {
+  overflow-x: auto;
+}
+.layers tr.cur td.name {
+  color: var(--accent);
+  font-weight: 600;
+}
+.layers td.num {
+  text-align: right;
+  color: var(--muted);
+}
+.layers input.color {
+  width: 56px;
+}
+.layers input,
+.layers select,
+.plot input,
+.plot select {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 6px;
+  font: inherit;
+}
+.swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.newlayer {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 10px;
+}
+.newlayer input[name='name'] {
+  flex: 1;
+  min-width: 0;
+}
+.newlayer input[name='color'] {
+  width: 64px;
+}
+.newlayer button,
+.plot .buttons button {
+  border: 1px solid var(--border);
+  padding: 4px 12px;
+}
+.plot .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px 16px;
+  margin-top: 8px;
+}
+.plot label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+}
+.plot label.check {
+  flex-direction: row;
+  align-items: center;
+  color: var(--text);
+}
+.plot .buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.plot .buttons .primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+@media print {
+  #app {
     display: none;
   }
 }
