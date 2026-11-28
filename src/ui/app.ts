@@ -10,7 +10,7 @@ import {
   type Registry,
   runInteractive,
 } from '../core/commands';
-import { type NewEntity, type SnapKind, applyGrip, bbox, distanceTo, gripPoints, insideBox, intersections, perpendicularFoot, snapPoints, touchesBox } from '../core/entities';
+import { type NewEntity, type SnapKind, applyGrip, moveEnt, bbox, distanceTo, gripPoints, insideBox, intersections, perpendicularFoot, snapPoints, touchesBox } from '../core/entities';
 import { normDeg } from '../core/entities';
 import { parseInput } from '../core/input';
 import { type MhcadApi, createApi } from '../core/api';
@@ -23,7 +23,7 @@ import { PAPERS, plotSvg } from '../core/svg';
 import { type Theme, Viewport, aciToCss, render } from './view';
 import { ICONS, LOGO } from './icons';
 
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 
 const THEMES: Record<'dark' | 'light', Theme> = {
   dark: {
@@ -87,7 +87,7 @@ const store = {
 };
 
 const TOOLS = [
-  'LINE', 'PLINE', 'RECTANG', 'POLYGON', 'CIRCLE', 'ARC', 'ELLIPSE', 'TEXT', '|',
+  'LINE', 'PLINE', 'MLINE', 'RECTANG', 'POLYGON', 'CIRCLE', 'ARC', 'ELLIPSE', 'TEXT', '|',
   'MOVE', 'COPY', 'ROTATE', 'SCALE', 'MIRROR', 'STRETCH', 'ARRAY', 'OFFSET', 'TRIM', 'EXTEND', 'FILLET', 'CHAMFER', 'BREAK', 'JOIN', 'EXPLODE', 'ERASE', '|',
   'DIMLINEAR', 'DIMALIGNED', 'DIMRADIUS', 'DIMANGULAR', 'DIMCONTINUE', '|',
   'HATCH', 'BLOCK', 'INSERT', 'MATCHPROP', '|', 'DIST', 'AREA', 'LIST',
@@ -127,6 +127,7 @@ const TOOL_LABEL: Record<string, string> = {
   AREA: 'Diện tích (AA)',
   HATCH: 'Tô vật liệu (H)',
   ELLIPSE: 'Elip (EL)',
+  MLINE: 'Tường 2 nét (ML)',
   STRETCH: 'Kéo giãn (S)',
   ARRAY: 'Mảng chữ nhật / tròn (AR)',
   LIST: 'Thông tin đối tượng (LI)',
@@ -894,6 +895,13 @@ export class App {
       } else if (mod && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
         e.preventDefault();
         this.redo();
+      } else if (mod && e.key.toLowerCase() === 'c' && !this.hasTextSelection()) {
+        if (!this.selection.size) return;
+        e.preventDefault();
+        this.copySelection();
+      } else if (mod && e.key.toLowerCase() === 'v' && document.activeElement === this.input && !this.input.value) {
+        e.preventDefault();
+        void this.pasteClip();
       } else if (mod && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         this.showPlot();
@@ -1227,6 +1235,53 @@ export class App {
     } catch {
       return false;
     }
+  }
+
+  // ---------- Sao chép / dán ----------
+
+  private hasTextSelection(): boolean {
+    const a = document.activeElement;
+    if (a instanceof HTMLInputElement) return a.selectionStart !== a.selectionEnd;
+    return !!window.getSelection()?.toString();
+  }
+
+  private copySelection(): void {
+    const ents = [...this.selection].map((id) => this.doc.get(id)).filter((e): e is NonNullable<typeof e> => !!e);
+    if (!ents.length) return;
+    const b = ents.map(bbox).reduce((a, x) => ({ minX: Math.min(a.minX, x.minX), minY: Math.min(a.minY, x.minY), maxX: 0, maxY: 0 }));
+    const names = new Set<string>();
+    const collect = (list: { type: string; name?: string }[]) => {
+      for (const e of list)
+        if (e.type === 'INSERT' && e.name && !names.has(e.name)) {
+          names.add(e.name);
+          collect(this.doc.blocks.get(e.name)?.ents ?? []);
+        }
+    };
+    collect(ents);
+    const data = {
+      base: [b.minX, b.minY],
+      ents: ents.map(({ id: _id, ...rest }) => rest),
+      blocks: [...names].map((n) => this.doc.blocks.get(n)).filter(Boolean),
+    };
+    store.set('mhcad.clip', JSON.stringify(data));
+    this.print(`Đã sao chép ${ents.length} đối tượng (Ctrl+V để dán)`);
+  }
+
+  private async pasteClip(): Promise<void> {
+    const raw = store.get('mhcad.clip');
+    if (!raw) return this.print('Bộ nhớ tạm trống');
+    const data = JSON.parse(raw) as { base: Vec; ents: NewEntity[] };
+    if (this.running) {
+      this.cancel();
+      await this.running;
+    }
+    this.echo('PASTECLIP', true);
+    this.launch('PASTECLIP', async () => {
+      const to = await this.io.getPoint('Điểm dán', {
+        preview: (c) => data.ents.map((e) => moveEnt(e, sub(c, data.base))),
+      });
+      if (Array.isArray(to)) this.print(this.api.run('PASTECLIP', { data: raw, from: data.base, to }).message!);
+    });
   }
 
   // ---------- Gợi ý lệnh, nhập động, thuộc tính, sửa chữ ----------

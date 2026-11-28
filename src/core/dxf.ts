@@ -7,6 +7,7 @@
 import { type Vec, add, deg2rad, dist, mul, polar, sub } from './geom';
 import { type BlockDef, type DimEnt, type NewEntity, expand } from './entities';
 import { type PatLine, hatchSegments, trapezoids } from './hatch';
+import { offsetPolyline } from './offset';
 import type { DrawingData, Layer } from './document';
 import { BUILTIN_LINETYPES } from './document';
 import { DEFAULT_DIMSTYLE } from './dim';
@@ -587,6 +588,59 @@ export function readDxf(text: string): DxfReadResult {
         const bname = get(r, 2);
         if (bname) out.push({ type: 'INSERT', name: decodeDxfText(bname), p: [0, 0], sx: 1, sy: 1, rot: 0, ...cm });
         else skip(type);
+        return;
+      }
+      case 'MLINE': {
+        const scale = num(r, 40, 1);
+        const just = num(r, 70, 0);
+        const flags = num(r, 71, 0);
+        const verts: Vec[] = [];
+        for (let k = 0; k < r.length; k++) if (r[k][0] === 11) verts.push([Number(r[k][1]), Number(r[k + 1]?.[1] ?? 0)]);
+        if (verts.length < 2) return void skip('MLINE');
+        // Kiểu STANDARD: hai nét ở ±0,5 × tỉ lệ.
+        const closed = (flags & 2) !== 0;
+        const [o1, o2] = just === 0 ? [0, -scale] : just === 2 ? [scale, 0] : [scale / 2, -scale / 2];
+        const side = (o: number) => (Math.abs(o) < 1e-12 ? verts : offsetPolyline(verts, closed, o));
+        const a = side(o1);
+        const b = side(o2);
+        out.push({ type: 'LWPOLYLINE', pts: a, closed, ...cm }, { type: 'LWPOLYLINE', pts: b, closed, ...cm });
+        if (!closed) {
+          if (!(flags & 4)) out.push({ type: 'LINE', a: a[0], b: b[0], ...cm });
+          if (!(flags & 8)) out.push({ type: 'LINE', a: a[a.length - 1], b: b[b.length - 1], ...cm });
+        }
+        return;
+      }
+      case 'MULTILEADER':
+      case 'MLEADER': {
+        let text = '';
+        let loc: Vec | null = null;
+        let h = 0;
+        const lines: Vec[][] = [];
+        let cur: Vec[] | null = null;
+        let conn: Vec | null = null;
+        let inLeader = false;
+        for (let k = 0; k < r.length; k++) {
+          const [c, v] = r[k];
+          if (c === 302 && v === 'LEADER{') inLeader = true;
+          else if (c === 303) inLeader = false;
+          else if (c === 304 && v === 'LEADER_LINE{') cur = [];
+          else if (c === 305 && cur) {
+            lines.push(conn ? [...cur, conn] : cur);
+            cur = null;
+          } else if (c === 304 && !text) text = v;
+          else if (c === 10 && cur) cur.push([Number(v), Number(r[k + 1]?.[1] ?? 0)]);
+          else if (c === 10 && inLeader && !conn) conn = [Number(v), Number(r[k + 1]?.[1] ?? 0)];
+          else if (c === 12 && !loc) loc = [Number(v), Number(r[k + 1]?.[1] ?? 0)];
+          else if (c === 41 && !h) h = Number(v);
+        }
+        for (const l of lines) if (l.length >= 2) out.push({ type: 'LWPOLYLINE', pts: l, closed: false, ...cm });
+        if (text && loc) {
+          const hh = h > 0 ? h : dimStyle.txt;
+          stripMtext(text)
+            .split('\n')
+            .forEach((t, k) => t.trim() && out.push({ type: 'TEXT', p: [loc![0], loc![1] - hh * (k + 1) * 1.4 + hh * 0.4], h: hh, text: t, rot: 0, ...cm }));
+        }
+        if (!lines.length && !text) skip(type);
         return;
       }
       case 'HATCH': {

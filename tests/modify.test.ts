@@ -371,3 +371,24 @@ describe('SETPROP, ARRAY, STRETCH, ELLIPSE', () => {
     expect(r.area as number).toBeCloseTo(Math.PI * 5000, -2);
   });
 });
+
+describe('MLINE, PASTECLIP', () => {
+  it('MLINE tạo hai nét song song và nét bịt đầu', () => {
+    const { doc, api } = setup();
+    const r = api.run('MLINE', { points: [[0, 0], [4000, 0], [4000, 3000]], width: 200 });
+    expect((r.ids as number[]).length).toBe(4);
+    const polys = doc.all().filter((e) => e.type === 'LWPOLYLINE') as Extract<Entity, { type: 'LWPOLYLINE' }>[];
+    const ys = polys.map((p) => p.pts[0][1]).sort((a, b) => a - b);
+    expect(ys).toEqual([-100, 100]);
+    // Góc trong / ngoài của tường gặp nhau đúng (giao nhau kiểu vát).
+    const outer = polys.find((p) => p.pts[0][1] === -100)!;
+    expect(outer.pts[1]).toEqual([4100, -100]);
+  });
+  it('PASTECLIP dán dữ liệu kèm block', () => {
+    const { doc, api } = setup();
+    const data = { ents: [{ type: 'INSERT', name: 'B', p: [0, 0], sx: 1, sy: 1, rot: 0, layer: '0' }], blocks: [{ name: 'B', base: [0, 0], ents: [{ type: 'LINE', a: [0, 0], b: [1, 0], layer: '0' }] }] };
+    api.run('PASTECLIP', { data: JSON.stringify(data), from: [0, 0], to: [10, 5] });
+    expect(doc.blocks.has('B')).toBe(true);
+    expect(doc.all()[0]).toMatchObject({ type: 'INSERT', p: [10, 5] });
+  });
+});

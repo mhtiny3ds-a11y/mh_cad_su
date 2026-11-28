@@ -152,3 +152,23 @@ describe('DXF', () => {
     expect(data.entities.find((e) => e.type === 'POINT')).toMatchObject({ p: [1, 2] });
   });
 });
+
+describe('DXF MLINE, MULTILEADER', () => {
+  it('đọc MLINE (căn giữa) thành hai nét + bịt đầu, MULTILEADER thành đường dẫn + chữ', () => {
+    const dxf = [
+      '0', 'SECTION', '2', 'ENTITIES',
+      '0', 'MLINE', '8', 'T', '2', 'STANDARD', '40', '200', '70', '1', '71', '1', '72', '2', '73', '2',
+      '10', '0', '20', '0', '11', '0', '21', '0', '12', '1', '22', '0', '13', '0', '23', '1', '11', '1000', '21', '0', '12', '1', '22', '0', '13', '0', '23', '1',
+      '0', 'MULTILEADER', '8', 'G', '300', 'CONTEXT_DATA{', '41', '250', '304', 'Cửa đi D1', '12', '500', '22', '600',
+      '302', 'LEADER{', '10', '400', '20', '550', '304', 'LEADER_LINE{', '10', '0', '20', '0', '305', '}', '303', '}', '301', '}',
+      '0', 'ENDSEC', '0', 'EOF', '',
+    ].join('\n');
+    const { data } = readDxf(dxf);
+    const polys = data.entities.filter((e) => e.type === 'LWPOLYLINE');
+    expect(polys.length).toBe(3);
+    expect(data.entities.filter((e) => e.type === 'LINE').length).toBe(2);
+    expect(data.entities.find((e) => e.type === 'TEXT')).toMatchObject({ text: 'Cửa đi D1', h: 250 });
+    const leader = polys.find((p) => p.type === 'LWPOLYLINE' && p.layer === 'G');
+    expect(leader).toMatchObject({ pts: [[0, 0], [400, 550]] });
+  });
+});

@@ -37,6 +37,7 @@ export const ICONS: Record<string, string> = {
   MATCHPROP: svg('<path d="M4 16l6-6M10 10l4-4 2 2-4 4z"/><path d="M3 17l2-2"/>'),
   AREA: svg('<path d="M3 15l4-11 10 3-3 9z" fill="currentColor" fill-opacity=".18"/>'),
   HATCH: svg('<rect x="3" y="3" width="14" height="14"/><path d="M3 9l6-6M3 15l12-12M7 17l10-10M13 17l4-4"/>'),
+  MLINE: svg('<path d="M3 6h11v11M3 9h8v8" />'),
   ELLIPSE: svg('<ellipse cx="10" cy="10" rx="7.5" ry="4.5"/>'),
   STRETCH: svg('<path d="M3 14V6h6M9 6l8 8H3"/><path d="M12 4h5v5" stroke-dasharray="2 2"/>'),
   ARRAY: svg('<rect x="3" y="3" width="5" height="5"/><rect x="12" y="3" width="5" height="5"/><rect x="3" y="12" width="5" height="5"/><rect x="12" y="12" width="5" height="5"/>'),

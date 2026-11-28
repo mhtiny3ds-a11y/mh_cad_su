@@ -5,6 +5,8 @@ import { type Entity, type NewEntity, bbox, moveEnt, normDeg, rotateEnt } from '
 import { PATTERNS, patternLines } from '../hatch';
 import { type Args, type CommandDef, type Ctx, COMMON, bool, created, ids, num, optStr, pickSelection, props, pt } from '../commands';
 import { toVec } from '../input';
+import { offsetPolyline } from '../offset';
+import type { BlockDef } from '../entities';
 
 // ---------- SETPROP ----------
 
@@ -341,4 +343,109 @@ const ELLIPSE: CommandDef = {
   },
 };
 
-export const EDIT_COMMANDS: CommandDef[] = [SETPROP, ARRAY, STRETCH, ELLIPSE];
+// ---------- MLINE (tường 2 nét) ----------
+
+/** Hai đường song song của MLINE theo căn lề: top (đường đi qua mép trên), zero (giữa), bottom. */
+export function mlineEdges(points: Vec[], width: number, just: string, closed: boolean): [Vec[], Vec[]] {
+  const [o1, o2] = just === 'top' ? [0, -width] : just === 'bottom' ? [width, 0] : [width / 2, -width / 2];
+  const side = (o: number) => (Math.abs(o) < 1e-12 ? [...points] : offsetPolyline(points, closed, o));
+  return [side(o1), side(o2)];
+}
+
+let mlWidth = 200;
+let mlJust = 'zero';
+
+const MLINE: CommandDef = {
+  name: 'MLINE',
+  aliases: ['ML', 'TUONG'],
+  desc: 'Vẽ tường 2 nét: hai đa tuyến song song cách nhau "width", có nét bịt hai đầu',
+  params: [
+    { name: 'points', type: 'points', required: true, desc: 'Các điểm của đường định vị' },
+    { name: 'width', type: 'number', desc: 'Bề dày (mặc định 200)' },
+    { name: 'justification', type: 'string', desc: '"zero" (giữa, mặc định), "top" hoặc "bottom"' },
+    { name: 'closed', type: 'boolean', desc: 'Khép kín' },
+    ...COMMON,
+  ],
+  run(ctx, args) {
+    const raw = args.points;
+    if (!Array.isArray(raw) || raw.length < 2) throw new Error('"points" cần ít nhất 2 điểm');
+    const p = raw.map((x, i) => toVec(x, `points[${i}]`));
+    const w = num(args, 'width', mlWidth);
+    if (w <= 0) throw new Error('Bề dày phải > 0');
+    const just = (optStr(args, 'justification') ?? mlJust).toLowerCase();
+    const closed = bool(args, 'closed', false);
+    const [a, b] = mlineEdges(p, w, just, closed);
+    const pr = props(ctx, args);
+    const out: Entity[] = [
+      ctx.doc.add({ type: 'LWPOLYLINE', pts: a, closed, ...pr }),
+      ctx.doc.add({ type: 'LWPOLYLINE', pts: b, closed, ...pr }),
+    ];
+    if (!closed) {
+      out.push(ctx.doc.add({ type: 'LINE', a: a[0], b: b[0], ...pr }));
+      out.push(ctx.doc.add({ type: 'LINE', a: a[a.length - 1], b: b[b.length - 1], ...pr }));
+    }
+    return created(out);
+  },
+  async interactive(ctx, io) {
+    io.print(`Bề dày ${mlWidth}, căn ${mlJust}`);
+    const chain: Vec[] = [];
+    for (;;) {
+      const last = chain[chain.length - 1];
+      const r = await io.getPoint(chain.length ? 'Điểm tiếp theo' : 'Điểm đầu', {
+        base: last,
+        allowNone: chain.length > 0,
+        keywords: chain.length >= 3 ? ['Close', 'Undo'] : chain.length ? ['Undo'] : ['Width', 'Justification'],
+        preview: (c) => {
+          if (!chain.length) return [];
+          const [a, b] = mlineEdges([...chain, c], mlWidth, mlJust, false);
+          return [
+            { type: 'LWPOLYLINE', pts: a, closed: false, layer: ctx.doc.currentLayer },
+            { type: 'LWPOLYLINE', pts: b, closed: false, layer: ctx.doc.currentLayer },
+          ];
+        },
+      });
+      if (r === 'Width') {
+        const v = await io.getDistance('Bề dày tường', { def: mlWidth });
+        if (v && v > 0) mlWidth = v;
+        continue;
+      }
+      if (r === 'Justification') {
+        const v = await io.getPoint('Căn theo', { keywords: ['Top', 'Zero', 'Bottom'] });
+        if (typeof v === 'string') mlJust = v.toLowerCase();
+        continue;
+      }
+      if (r === 'Undo') {
+        chain.pop();
+        continue;
+      }
+      if (r === null || r === 'Close') {
+        if (chain.length >= 2) MLINE.run(ctx, { points: chain, closed: r === 'Close' });
+        return;
+      }
+      if (Array.isArray(r)) chain.push(r as Vec);
+    }
+  },
+};
+
+// ---------- Dán (Ctrl+V) ----------
+
+const PASTE: CommandDef = {
+  name: 'PASTECLIP',
+  aliases: ['PASTE'],
+  desc: 'Dán các đối tượng (dữ liệu từ Ctrl+C) dời từ điểm "from" tới "to"',
+  params: [
+    { name: 'data', type: 'string', required: true, desc: 'JSON {"ents": [...], "blocks": [...]} như khi sao chép' },
+    { name: 'from', type: 'point', required: true, desc: 'Điểm gốc của dữ liệu' },
+    { name: 'to', type: 'point', required: true, desc: 'Điểm dán' },
+  ],
+  run(ctx, args) {
+    const d = (typeof args.data === 'string' ? JSON.parse(args.data) : args.data) as { ents: NewEntity[]; blocks?: BlockDef[] };
+    if (!d || !Array.isArray(d.ents)) throw new Error('Dữ liệu dán không hợp lệ');
+    for (const b of d.blocks ?? []) if (!ctx.doc.blocks.has(b.name)) ctx.doc.setBlock(b);
+    const delta = sub(pt(args, 'to'), pt(args, 'from'));
+    const out = d.ents.map((e) => ctx.doc.add(moveEnt(e, delta)));
+    return created(out, `Đã dán ${out.length} đối tượng`);
+  },
+};
+
+export const EDIT_COMMANDS: CommandDef[] = [SETPROP, ARRAY, STRETCH, ELLIPSE, MLINE, PASTE];

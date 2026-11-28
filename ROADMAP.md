@@ -26,26 +26,30 @@ Nguyên tắc: làm **ít lệnh nhưng chạy chắc**, có kiểm thử. Mỗi
 - ✅ In / lưu PDF theo khổ A4–A0, tỉ lệ 1:N hoặc vừa khổ, đen trắng; xuất SVG
 - ✅ Cảm ứng: chụm hai ngón để zoom/di chuyển
 
-## v0.3 — Còn thiếu so với các phần mềm CAD web đầy đủ
+## ✅ v0.3 — Mở DWG, HATCH, trải nghiệm mượt (xong)
 
-- [ ] FILLET/CHAMFER cho đa tuyến và cung; TRIM/EXTEND cho đa tuyến tự cắt; OFFSET có cung
-- [ ] Đa tuyến có cung (bulge) giữ nguyên khi sửa (hiện nhập vào được chia thành đoạn thẳng)
-- [ ] Bắt điểm tiếp tuyến (TAN), đường dóng (tracking), POLAR 15°/30°/45°
-- [ ] HATCH (mẫu tự soạn) + đọc HATCH từ DXF
-- [ ] MTEXT nhiều dòng thật sự, sửa chữ tại chỗ (DDEDIT), tìm & thay chữ
+- ✅ **Mở DWG** (R2000–R2018) bằng LibreDWG WebAssembly (`@mlightcad/libredwg-web`, GPL-3.0) trong Web Worker, tải khi cần
+- ✅ **HATCH**: 12 mẫu tự soạn, dò biên khi bấm điểm (kể cả biên tạo bởi các đoạn rời), nhận đảo; HATCHEDIT, BOUNDARY;
+  đọc HATCH từ DXF/DWG (biên đa tuyến/cạnh/cung/ellipse, mẫu theo file), ghi ra block `*X`
+- ✅ ARRAY (chữ nhật, tròn), STRETCH, ELLIPSE, MLINE (tường 2 nét), POINT, SETPROP, PASTECLIP
+- ✅ Đọc MLINE, MULTILEADER, ACAD_TABLE, ARC_DIMENSION
+- ✅ Gợi ý lệnh khi gõ, ô nhập động cạnh con trỏ (độ dài, góc, tên điểm bắt), POLAR 45° (F10)
+- ✅ Bảng thuộc tính (Ctrl+1), bấm đúp để sửa chữ tại chỗ, Ctrl+C / Ctrl+V, kéo-thả file
+- ✅ Hiệu năng: vẽ theo lô Path2D, lưu đệm hộp bao / hình vẽ block, chỉ mục lưới — 37.500 đối tượng vẽ ~25 ms
+
+## v0.4 — Còn thiếu
+
 - [ ] Chuyển mã TCVN3 / VNI → Unicode khi mở file cũ
-- [ ] Bảng thuộc tính (Properties) cho đối tượng đang chọn
-- [ ] Kích thước đọc từ DXF giữ được giá trị đo (hiện hiển thị qua block hình vẽ gốc)
-- [ ] STRETCH, ARRAY (chữ nhật, tròn, theo đường), ELLIPSE, SPLINE, XLINE, POINT, DONUT, REVCLOUD
+- [ ] AutoLISP (trình thông dịch tập con)
 - [ ] Layout / paper space, viewport, khung tên
-
-## v0.4 — File & hiệu năng
-
-- [ ] Đọc DWG bằng LibreDWG (WebAssembly, GPL-3.0) trong Web Worker
-- [ ] Ghi DXF R2000+ (LWPOLYLINE, handle), giữ lại dữ liệu chưa hiểu khi ghi lại
-- [ ] Chỉ mục không gian + bộ nhớ đệm hình vẽ block cho bản vẽ lớn
-- [ ] Bảng alias tự sửa; nạp file `.pgp` của người dùng
-- [ ] WBLOCK, thư viện block dùng chung
+- [ ] Kích thước đọc từ DXF giữ được giá trị đo (hiện hiển thị qua block hình vẽ gốc)
+- [ ] Đa tuyến có cung (bulge) giữ nguyên khi sửa (hiện chia thành đoạn thẳng)
+- [ ] FILLET/CHAMFER cho đa tuyến và cung; OFFSET có cung
+- [ ] Bắt điểm tiếp tuyến (TAN), đường dóng theo điểm (object tracking)
+- [ ] MTEXT nhiều dòng, tìm & thay chữ
+- [ ] XLINE, RAY, SPLINE vẽ mới, DONUT, REVCLOUD, WIPEOUT
+- [ ] Ghi DXF R2000+ (LWPOLYLINE, HATCH gốc, handle), giữ lại dữ liệu chưa hiểu khi ghi lại
+- [ ] Bảng alias tự sửa; nạp file `.pgp` của người dùng; WBLOCK, thư viện block
 
 ## v0.5 — Trợ lý AI điều khiển MHCAD
 
