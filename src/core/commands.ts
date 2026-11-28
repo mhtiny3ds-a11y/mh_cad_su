@@ -78,6 +78,8 @@ export interface Ctx {
   selection: Set<number>;
   view?: ViewApi;
   print: (msg: string) => void;
+  /** Thao tác giao diện (mở tệp, in, bộ nhớ tạm…); không có khi chạy ngoài trình duyệt. */
+  ui?: (action: string, args: Record<string, unknown>) => Record<string, unknown> | void;
 }
 
 export interface CommandDef {
@@ -137,10 +139,12 @@ export function ids(ctx: Ctx, args: Args): Entity[] {
 }
 
 /** Thuộc tính chung: layer và màu (nếu truyền vào). */
-export function props(ctx: Ctx, args: Args): { layer: string; color?: number } {
+export function props(ctx: Ctx, args: Args): { layer: string; color?: number; lt?: string } {
   const layer = optStr(args, 'layer') ?? ctx.doc.currentLayer;
-  const color = args.color == null ? undefined : num(args, 'color');
-  return color === undefined ? { layer } : { layer, color };
+  // Màu / kiểu đường hiện hành (lệnh COLOR, CELTYPE) áp cho đối tượng mới.
+  const color = args.color == null ? ctx.doc.getVar<number | undefined>('CECOLOR', undefined) : num(args, 'color');
+  const lt = ctx.doc.getVar<string | undefined>('CELTYPE', undefined);
+  return { layer, ...(color !== undefined ? { color } : {}), ...(lt ? { lt } : {}) };
 }
 
 export const COMMON: ParamSpec[] = [
@@ -430,6 +434,8 @@ const ERASE: CommandDef = {
   run(ctx, args) {
     const list = ids(ctx, args);
     for (const e of list) ctx.doc.remove(e.id);
+    // Nhớ lần xoá gần nhất cho OOPS.
+    ctx.doc.setVar('_OOPS', list.map(({ id: _id, ...rest }) => rest));
     ctx.selection.clear();
     return { ids: list.map((e) => e.id), message: `Đã xoá ${list.length} đối tượng` };
   },
@@ -737,7 +743,7 @@ const LAYER: CommandDef = {
   },
 };
 
-function renameLayer(ctx: Ctx, from: string, to: string): Result {
+export function renameLayer(ctx: Ctx, from: string, to: string): Result {
   const l = ctx.doc.layers.get(from);
   if (!l) throw new Error(`Không có layer "${from}"`);
   if (from === '0') throw new Error('Không đổi tên được layer 0');
@@ -917,13 +923,72 @@ export function runCommand(reg: Registry, ctx: Ctx, name: string, args: Args = {
 }
 
 /** Chạy lệnh ở chế độ tương tác; Esc giữ lại phần đã làm (giống AutoCAD). */
+/** Lệnh chưa có phần hỏi đáp riêng: hỏi lần lượt các tham số bắt buộc rồi chạy. */
+async function askParams(def: CommandDef, ctx: Ctx, io: IO): Promise<void> {
+  const args: Args = {};
+  for (const p of def.params.filter((x) => x.required)) {
+    const msg = p.desc;
+    switch (p.type) {
+      case 'point': {
+        const v = await io.getPoint(msg);
+        if (!Array.isArray(v)) return;
+        args[p.name] = v;
+        break;
+      }
+      case 'points': {
+        const list: Vec[] = [];
+        for (;;) {
+          const v = await io.getPoint(`${msg} (Enter để kết thúc)`, { allowNone: list.length > 0, base: list[list.length - 1] });
+          if (!Array.isArray(v)) break;
+          list.push(v as Vec);
+        }
+        if (!list.length) return;
+        args[p.name] = list;
+        break;
+      }
+      case 'number': {
+        if (p.name === 'id') {
+          const v = await io.getEntity(msg);
+          if (!v || typeof v === 'string') return;
+          args[p.name] = v.id;
+          break;
+        }
+        const v = await io.getDistance(msg);
+        if (v === null) return;
+        args[p.name] = v;
+        break;
+      }
+      case 'ids': {
+        const pre = [...ctx.selection];
+        const v = pre.length ? pre : await io.getSelection(msg);
+        if (!v.length) return;
+        args[p.name] = v;
+        break;
+      }
+      case 'boolean': {
+        const v = await io.getString(`${msg} [Yes/No]`, { def: 'Yes' });
+        if (v === null) return;
+        args[p.name] = /^(y|c|1|t)/i.test(v);
+        break;
+      }
+      default: {
+        const v = await io.getString(msg, { spaces: true });
+        if (v === null || v === '') return;
+        args[p.name] = v;
+      }
+    }
+  }
+  const r = def.run(ctx, args);
+  if (r.message) io.print(r.message);
+}
+
 export async function runInteractive(reg: Registry, ctx: Ctx, io: IO, name: string): Promise<void> {
   const def = reg.resolve(name);
   if (!def) throw new Error(`Không có lệnh "${name}"`);
-  if (!def.interactive) throw new Error(`Lệnh ${def.name} chưa hỗ trợ nhập tương tác`);
+  const flow = def.interactive ? (c: Ctx, i: IO) => def.interactive!(c, i) : (c: Ctx, i: IO) => askParams(def, c, i);
   if (def.readonly) {
     try {
-      await def.interactive(ctx, io);
+      await flow(ctx, io);
     } catch (e) {
       if (!(e instanceof CancelError)) throw e;
     }
@@ -931,7 +996,7 @@ export async function runInteractive(reg: Registry, ctx: Ctx, io: IO, name: stri
   }
   ctx.doc.begin(def.name);
   try {
-    await def.interactive(ctx, io);
+    await flow(ctx, io);
     ctx.doc.commit();
   } catch (e) {
     if (e instanceof CancelError) ctx.doc.commit();

@@ -349,7 +349,7 @@ try {
 
   // Thanh menu → lệnh XLINE; MTEXT qua hộp soạn nhiều dòng.
   await page.evaluate(() => window.mhcad.file.newDrawing());
-  await page.locator('[data-menu="2"]').click();
+  await page.locator('.menubar button:text-is("Vẽ")').click();
   check('Mở menu Vẽ', await page.locator('#menupop').isVisible());
   await page.screenshot({ path: `${OUT}menu.png` });
   await page.locator('#menupop [data-mi="cmd:XLINE"]').click();

@@ -59,6 +59,15 @@ export function measure(d: Omit<DimEnt, 'id'>): number {
       return dist(p[0], p[1]);
     case 'diameter':
       return dist(p[0], p[1]);
+    case 'ordinate':
+      // rot 90 = đo Y (đường dẫn ngang), còn lại đo X.
+      return d.rot === 90 ? p[0][1] : p[0][0];
+    case 'arclen': {
+      const a1 = angleOf(sub(p[1], p[0]));
+      const a2 = angleOf(sub(p[2], p[0]));
+      const { sweep } = angularSpan(p[0], a1, a2, p[3]);
+      return sweep * dist(p[0], p[1]);
+    }
     case 'angular': {
       const a1 = angleOf(sub(p[1], p[0]));
       const a2 = angleOf(sub(p[2], p[0]));
@@ -82,7 +91,7 @@ function angularSpan(c: Vec, a1: number, a2: number, loc: Vec): { from: number; 
 export function dimText(d: Omit<DimEnt, 'id'>): string {
   if (d.text && d.text !== '<>') return d.text;
   const v = fmtMeasure(measure(d), d.style.dec);
-  const t = d.kind === 'radius' ? `R${v}` : d.kind === 'diameter' ? `Ø${v}` : d.kind === 'angular' ? `${v}°` : v;
+  const t = d.kind === 'radius' ? `R${v}` : d.kind === 'diameter' ? `Ø${v}` : d.kind === 'angular' ? `${v}°` : d.kind === 'arclen' ? `⌒${v}` : v;
   return d.text ? d.text.replace('<>', t) : t;
 }
 
@@ -170,7 +179,20 @@ export function dimGeometry(d: Omit<DimEnt, 'id'>): NewEntity[] {
     return out;
   }
 
-  // Góc: tâm, điểm trên cạnh 1, điểm trên cạnh 2, vị trí cung.
+  if (d.kind === 'ordinate') {
+    // Điểm cần đo → đầu đường dẫn; đường dẫn gãy một lần theo trục đo.
+    const [f, endP] = p;
+    const yType = d.rot === 90;
+    const dir: Vec = yType ? [Math.sign(endP[0] - f[0]) || 1, 0] : [0, Math.sign(endP[1] - f[1]) || 1];
+    const start = add(f, mul(dir, s.exo));
+    const knee: Vec = yType ? [endP[0] - dir[0] * s.asz * 2, f[1]] : [f[0], endP[1] - dir[1] * s.asz * 2];
+    out.push(line(start, knee), line(knee, endP));
+    const tp: Vec = yType ? add(endP, [dir[0] * s.gap, -s.txt / 2]) : add(endP, [0, dir[1] > 0 ? s.gap : -s.gap - s.txt]);
+    out.push({ ...text(tp, 0), ha: yType ? (dir[0] > 0 ? 'L' : 'R') : 'C' } as NewEntity);
+    return out;
+  }
+
+  // Góc / chiều dài cung: tâm, điểm trên cạnh 1, điểm trên cạnh 2, vị trí cung.
   const [c, q1, q2, loc] = p;
   const r = dist(c, loc);
   const { from, sweep } = angularSpan(c, angleOf(sub(q1, c)), angleOf(sub(q2, c)), loc);

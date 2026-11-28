@@ -76,7 +76,7 @@ const UNITS: Record<string, number> = { in: 1, ft: 2, mm: 4, cm: 5, m: 6 };
 const unitsCode = (u?: string) => UNITS[u ?? 'mm'] ?? 4;
 const unitsName = (c: number) => Object.entries(UNITS).find(([, v]) => v === c)?.[0];
 
-const DIM_TYPE: Record<DimEnt['kind'], number> = { linear: 0, aligned: 1, angular: 5, diameter: 3, radius: 4 };
+const DIM_TYPE: Record<DimEnt['kind'], number> = { linear: 0, aligned: 1, angular: 5, diameter: 3, radius: 4, ordinate: 6, arclen: 0 };
 
 export function writeDxf(data: DrawingData): string {
   const o: string[] = [];
@@ -263,6 +263,13 @@ export function writeDxf(data: DrawingData): string {
         pt(10, [0, 0]);
         break;
       case 'DIMENSION': {
+        if (e.kind === 'arclen') {
+          // R12 không có kích thước chiều dài cung → ghi hình vẽ của nó dưới dạng block.
+          head('INSERT');
+          g(2, dimBlockName.get(e) ?? '*D0');
+          pt(10, [0, 0]);
+          break;
+        }
         head('DIMENSION');
         g(2, dimBlockName.get(e) ?? '*D0');
         const p = e.pts;
@@ -273,9 +280,10 @@ export function writeDxf(data: DrawingData): string {
           const off = (p[2][0] - p[1][0]) * nrm[0] + (p[2][1] - p[1][1]) * nrm[1];
           pt(10, add(p[1], mul(nrm, off)));
         } else if (e.kind === 'radius' || e.kind === 'diameter') pt(10, e.kind === 'radius' ? p[0] : p[1]);
+        else if (e.kind === 'ordinate') pt(10, [0, 0]);
         else pt(10, p[3]);
         if (textEnt && textEnt.type === 'TEXT') pt(11, textEnt.p);
-        g(70, DIM_TYPE[e.kind]);
+        g(70, DIM_TYPE[e.kind] | (e.kind === 'ordinate' && e.rot !== 90 ? 64 : 0));
         if (e.text) g(1, encodeDxfText(e.text));
         if (e.kind === 'linear' || e.kind === 'aligned') {
           pt(13, p[0]);
@@ -283,7 +291,10 @@ export function writeDxf(data: DrawingData): string {
           if (e.kind === 'linear') g(50, e.rot ?? 0);
         } else if (e.kind === 'radius') pt(15, p[1]);
         else if (e.kind === 'diameter') pt(15, p[0]);
-        else {
+        else if (e.kind === 'ordinate') {
+          pt(13, p[0]);
+          pt(14, p[1]);
+        } else {
           pt(13, p[1]);
           pt(14, p[2]);
           pt(15, p[0]);
@@ -601,6 +612,23 @@ export function readDxf(text: string): DxfReadResult {
       case 'POINT':
         out.push({ type: 'POINT', p: vec(r, 10), ...cm });
         return;
+      case 'WIPEOUT': {
+        // Biên lưu trong hệ toạ độ ảnh (-0,5…0,5), trục V hướng xuống → đổi sang toạ độ bản vẽ.
+        const ins = vec(r, 10);
+        const u = vec(r, 11);
+        const v = vec(r, 12);
+        const bp: Vec[] = [];
+        for (let k = 0; k < r.length; k++) if (r[k][0] === 14) bp.push([Number(r[k][1]), Number(r[k + 1]?.[1] ?? 0)]);
+        let poly = bp.map(([x, y]): Vec => [ins[0] + u[0] * (x + 0.5) + v[0] * (0.5 - y), ins[1] + u[1] * (x + 0.5) + v[1] * (0.5 - y)]);
+        if (poly.length === 2) {
+          const [a, b] = poly;
+          poly = [a, [b[0], a[1]], b, [a[0], b[1]]];
+        }
+        if (poly.length > 2 && dist(poly[0], poly[poly.length - 1]) < 1e-9) poly.pop();
+        if (poly.length < 3) return void skip(type);
+        out.push({ type: 'LWPOLYLINE', pts: poly, closed: true, wipe: true, ...cm });
+        return;
+      }
       case 'XLINE':
       case 'RAY': {
         const d = vec(r, 11);
@@ -705,6 +733,7 @@ export function readDxf(text: string): DxfReadResult {
     else if (t === 3) out.push({ ...base, kind: 'diameter', pts: [vec(r, 15), vec(r, 10)] });
     else if (t === 4) out.push({ ...base, kind: 'radius', pts: [vec(r, 10), vec(r, 15)] });
     else if (t === 5) out.push({ ...base, kind: 'angular', pts: [vec(r, 15), vec(r, 13), vec(r, 14), vec(r, 10)] });
+    else if (t === 6) out.push({ ...base, kind: 'ordinate', pts: [vec(r, 13), vec(r, 14)], rot: num(r, 70) & 64 ? 0 : 90 });
     else skip('DIMENSION (loại chưa hỗ trợ)');
   };
 

@@ -154,12 +154,21 @@ const MENUS: { label: string; items: MenuItem[] }[] = [
     items: [
       { label: 'Bản vẽ mới', act: 'new' },
       { label: 'Mở DXF / DWG…', act: 'open', key: 'Ctrl+O' },
+      { label: 'Đóng bản vẽ', act: 'close' },
+      { label: 'Đóng tất cả', cmd: 'CLOSEALL' },
+      '-',
       { label: 'Lưu ra DXF', act: 'save', key: 'Ctrl+S' },
+      { label: 'Lưu thành…', cmd: 'SAVEAS' },
+      { label: 'Lưu tất cả', cmd: 'SAVEALL' },
+      { label: 'Ghi đối tượng ra tệp (WBLOCK)', cmd: 'WBLOCK' },
       '-',
       { label: 'In / xuất PDF…', act: 'plot', key: 'Ctrl+P' },
       { label: 'Xuất SVG', act: 'svg' },
+      { label: 'Xuất ảnh PNG', cmd: 'PNGOUT' },
       '-',
-      { label: 'Đóng bản vẽ', act: 'close' },
+      { label: 'Đơn vị bản vẽ', cmd: 'UNITS' },
+      { label: 'Dọn bản vẽ (PURGE)', cmd: 'PURGE' },
+      { label: 'Tình trạng bản vẽ', cmd: 'STATUS' },
     ],
   },
   {
@@ -167,15 +176,92 @@ const MENUS: { label: string; items: MenuItem[] }[] = [
     items: [
       { label: 'Hoàn tác', act: 'undo', key: 'Ctrl+Z' },
       { label: 'Làm lại', act: 'redo', key: 'Ctrl+Y' },
+      { label: 'Hoàn tác nhiều bước', cmd: 'UNDO' },
       '-',
+      { label: 'Cắt', cmd: 'CUTCLIP', key: 'Ctrl+X' },
       { label: 'Sao chép', act: 'copy', key: 'Ctrl+C' },
+      { label: 'Sao chép kèm điểm gốc', cmd: 'COPYBASE', key: 'Ctrl+Shift+C' },
       { label: 'Dán', act: 'paste', key: 'Ctrl+V' },
-      { label: 'Chọn tất cả', act: 'selectall', key: 'Ctrl+A' },
+      { label: 'Dán thành block', cmd: 'PASTEBLOCK', key: 'Ctrl+Shift+V' },
+      { label: 'Dán đúng toạ độ gốc', cmd: 'PASTEORIG' },
+      '-',
       { label: 'Xoá', cmd: 'ERASE', key: 'Del' },
+      { label: 'Lấy lại đối tượng vừa xoá', cmd: 'OOPS' },
+      { label: 'Chọn tất cả', act: 'selectall', key: 'Ctrl+A' },
+      { label: 'Chọn nhanh theo điều kiện', cmd: 'QSELECT' },
+      { label: 'Chọn đối tượng giống', cmd: 'SELECTSIMILAR' },
       '-',
       { label: 'Tìm & thay chữ', cmd: 'FIND' },
-      { label: 'Sao chép thuộc tính', cmd: 'MATCHPROP' },
-      { label: 'Thuộc tính', act: 'props', key: 'Ctrl+1' },
+    ],
+  },
+  {
+    label: 'Xem',
+    items: [
+      { label: 'Xem toàn bộ', act: 'extents', key: 'Z ↵ ↵' },
+      { label: 'Phóng to', act: 'zoomin' },
+      { label: 'Thu nhỏ', act: 'zoomout' },
+      { label: 'Vẽ lại', cmd: 'REGEN' },
+      '-',
+      { label: 'Ẩn đối tượng', cmd: 'HIDEOBJECTS' },
+      { label: 'Cô lập đối tượng', cmd: 'ISOLATEOBJECTS' },
+      { label: 'Hiện lại đối tượng', cmd: 'UNISOLATEOBJECTS' },
+      '-',
+      { label: 'Toàn màn hình vẽ', cmd: 'CLEANSCREENON', key: 'Ctrl+0' },
+      { label: 'Lịch sử lệnh', cmd: 'TEXTSCR', key: 'F2' },
+      { label: 'Bảng thuộc tính', act: 'props', key: 'Ctrl+1' },
+      { label: 'Nền sáng / tối', act: 'theme' },
+    ],
+  },
+  {
+    label: 'Chèn',
+    items: [
+      { label: 'Tạo block', cmd: 'BLOCK' },
+      { label: 'Chèn block', cmd: 'INSERT' },
+      { label: 'Thay block', cmd: 'BLOCKREPLACE' },
+      { label: 'Đếm block', cmd: 'BCOUNT' },
+      '-',
+      { label: 'Bảng', cmd: 'TABLE' },
+      { label: 'Góp ý (đám mây + ghi chú)', cmd: 'GOPY' },
+    ],
+  },
+  {
+    label: 'Định dạng',
+    items: [
+      { label: 'Quản lý layer', act: 'layers' },
+      { label: 'Màu hiện hành', cmd: 'COLOR' },
+      { label: 'Kiểu đường hiện hành', cmd: 'CELTYPE' },
+      { label: 'Tỉ lệ kiểu đường', cmd: 'LTSCALE' },
+      { label: 'Kiểu kích thước', cmd: 'DIMSTYLE' },
+      { label: 'Đổi tên layer / block', cmd: 'RENAME' },
+      '-',
+      { label: 'Tắt layer của đối tượng', cmd: 'LAYOFF' },
+      { label: 'Cô lập layer', cmd: 'LAYISO' },
+      { label: 'Bỏ cô lập layer', cmd: 'LAYUNISO' },
+      { label: 'Bật mọi layer', cmd: 'LAYON' },
+      { label: 'Khoá layer của đối tượng', cmd: 'LAYLCK' },
+      { label: 'Mở khoá layer của đối tượng', cmd: 'LAYULK' },
+      { label: 'Layer của đối tượng thành hiện hành', cmd: 'LAYMCUR' },
+      { label: 'Đưa đối tượng về layer hiện hành', cmd: 'LAYCUR' },
+      { label: 'Đổi sang layer của đối tượng mẫu', cmd: 'LAYMCH' },
+      { label: 'Chép sang layer khác', cmd: 'COPYTOLAYER' },
+      { label: 'Gộp layer', cmd: 'LAYMRG' },
+    ],
+  },
+  {
+    label: 'Công cụ',
+    items: [
+      { label: 'Khoảng cách', cmd: 'DIST' },
+      { label: 'Diện tích', cmd: 'AREA' },
+      { label: 'Toạ độ điểm', cmd: 'ID' },
+      { label: 'Tính chất vùng kín', cmd: 'MASSPROP' },
+      { label: 'Thông tin đối tượng', cmd: 'LIST' },
+      { label: 'Máy tính', cmd: 'CAL' },
+      '-',
+      { label: 'Đặt biến bản vẽ', cmd: 'SETVAR' },
+      { label: 'Bắt điểm', act: 'snap', key: 'F3' },
+      { label: 'Lưới', act: 'grid', key: 'F7' },
+      { label: 'Vuông góc', act: 'ortho', key: 'F8' },
+      { label: 'Dóng theo góc', act: 'polar', key: 'F10' },
     ],
   },
   {
@@ -195,24 +281,58 @@ const MENUS: { label: string; items: MenuItem[] }[] = [
       { label: 'Đường cong trơn', cmd: 'SPLINE' },
       { label: 'Vành khuyên', cmd: 'DONUT' },
       { label: 'Đường mây', cmd: 'REVCLOUD' },
+      { label: 'Ký hiệu đường ngắt', cmd: 'BREAKLINE' },
       { label: 'Điểm', cmd: 'POINT' },
+      { label: 'Chia đều', cmd: 'DIVIDE' },
+      { label: 'Đo đoạn', cmd: 'MEASURE' },
       '-',
       { label: 'Tô vật liệu', cmd: 'HATCH' },
       { label: 'Đường biên vùng', cmd: 'BOUNDARY' },
+      { label: 'Vùng che', cmd: 'WIPEOUT' },
       { label: 'Chữ một dòng', cmd: 'TEXT' },
       { label: 'Chữ nhiều dòng', cmd: 'MTEXT' },
     ],
   },
   {
+    label: 'Kích thước',
+    items: [
+      { label: 'Kích thước nhanh', cmd: 'QDIM' },
+      { label: 'Ngang / đứng', cmd: 'DIMLINEAR' },
+      { label: 'Song song', cmd: 'DIMALIGNED' },
+      { label: 'Chiều dài cung', cmd: 'DIMARC' },
+      { label: 'Toạ độ', cmd: 'DIMORDINATE' },
+      { label: 'Bán kính', cmd: 'DIMRADIUS' },
+      { label: 'Đường kính', cmd: 'DIMDIAMETER' },
+      { label: 'Góc', cmd: 'DIMANGULAR' },
+      { label: 'Cùng gốc', cmd: 'DIMBASELINE' },
+      { label: 'Nối tiếp', cmd: 'DIMCONTINUE' },
+      { label: 'Dàn đều kích thước', cmd: 'DIMSPACE' },
+      '-',
+      { label: 'Đường dẫn ghi chú', cmd: 'MLEADER' },
+      { label: 'Dấu tâm', cmd: 'CENTERMARK' },
+      { label: 'Đường tâm', cmd: 'CENTERLINE' },
+      '-',
+      { label: 'Sửa chữ kích thước', cmd: 'DIMEDIT' },
+      { label: 'Kiểu kích thước', cmd: 'DIMSTYLE' },
+    ],
+  },
+  {
     label: 'Sửa đổi',
     items: [
+      { label: 'Thuộc tính', act: 'props', key: 'Ctrl+1' },
+      { label: 'Sao chép thuộc tính', cmd: 'MATCHPROP' },
+      { label: 'Về ByLayer', cmd: 'SETBYLAYER' },
+      '-',
       { label: 'Di chuyển', cmd: 'MOVE' },
       { label: 'Sao chép', cmd: 'COPY' },
       { label: 'Xoay', cmd: 'ROTATE' },
       { label: 'Tỉ lệ', cmd: 'SCALE' },
       { label: 'Đối xứng', cmd: 'MIRROR' },
+      { label: 'Căn chỉnh', cmd: 'ALIGN' },
       { label: 'Kéo giãn', cmd: 'STRETCH' },
+      { label: 'Đổi chiều dài', cmd: 'LENGTHEN' },
       { label: 'Mảng', cmd: 'ARRAY' },
+      { label: 'Mảng dọc đường dẫn', cmd: 'ARRAYPATH' },
       { label: 'Offset song song', cmd: 'OFFSET' },
       '-',
       { label: 'Cắt bỏ', cmd: 'TRIM' },
@@ -220,56 +340,39 @@ const MENUS: { label: string; items: MenuItem[] }[] = [
       { label: 'Bo góc', cmd: 'FILLET' },
       { label: 'Vát góc', cmd: 'CHAMFER' },
       { label: 'Bẻ gãy', cmd: 'BREAK' },
+      { label: 'Cắt tại điểm', cmd: 'BREAKATPOINT' },
       { label: 'Nối', cmd: 'JOIN' },
+      { label: 'Sửa đa tuyến', cmd: 'PEDIT' },
+      { label: 'Đảo chiều', cmd: 'REVERSE' },
       { label: 'Phá khối', cmd: 'EXPLODE' },
+      { label: 'Xoá trùng', cmd: 'OVERKILL' },
       '-',
+      { label: 'Thứ tự vẽ', cmd: 'DRAWORDER' },
       { label: 'Sửa vùng tô', cmd: 'HATCHEDIT' },
+      { label: 'Sửa chữ', cmd: 'DDEDIT' },
     ],
   },
   {
-    label: 'Chú thích',
+    label: 'Express',
     items: [
-      { label: 'Kích thước ngang/đứng', cmd: 'DIMLINEAR' },
-      { label: 'Kích thước song song', cmd: 'DIMALIGNED' },
-      { label: 'Kích thước bán kính', cmd: 'DIMRADIUS' },
-      { label: 'Kích thước đường kính', cmd: 'DIMDIAMETER' },
-      { label: 'Kích thước góc', cmd: 'DIMANGULAR' },
-      { label: 'Kích thước nối tiếp', cmd: 'DIMCONTINUE' },
-      { label: 'Kiểu kích thước', cmd: 'DIMSTYLE' },
-      '-',
-      { label: 'Tạo block', cmd: 'BLOCK' },
-      { label: 'Chèn block', cmd: 'INSERT' },
-      { label: 'Tỉ lệ kiểu đường', cmd: 'LTSCALE' },
-    ],
-  },
-  {
-    label: 'Xem',
-    items: [
-      { label: 'Xem toàn bộ', act: 'extents', key: 'Z ↵ ↵' },
-      { label: 'Phóng to', act: 'zoomin' },
-      { label: 'Thu nhỏ', act: 'zoomout' },
-      '-',
-      { label: 'Lưới', act: 'grid', key: 'F7' },
-      { label: 'Bắt điểm', act: 'snap', key: 'F3' },
-      { label: 'Vuông góc', act: 'ortho', key: 'F8' },
-      { label: 'Dóng theo góc', act: 'polar', key: 'F10' },
-      '-',
-      { label: 'Quản lý layer', act: 'layers' },
-      { label: 'Nền sáng / tối', act: 'theme' },
-    ],
-  },
-  {
-    label: 'Đo',
-    items: [
-      { label: 'Khoảng cách', cmd: 'DIST' },
-      { label: 'Diện tích', cmd: 'AREA' },
-      { label: 'Thông tin đối tượng', cmd: 'LIST' },
+      { label: 'Đổi chiều cao chữ hàng loạt', cmd: 'SCALETEXT' },
+      { label: 'Đánh số chữ', cmd: 'TCOUNT' },
+      { label: 'Đổi chữ hoa / thường', cmd: 'TCASE' },
+      { label: 'Xoay chữ cho dễ đọc', cmd: 'TORIENT' },
+      { label: 'Gộp chữ thành chữ nhiều dòng', cmd: 'TXT2MTXT' },
+      { label: 'Đổi điểm canh chữ', cmd: 'JUSTIFYTEXT' },
+      { label: 'Bao chữ bằng hình', cmd: 'TCIRCLE' },
+      { label: 'Che nền dưới chữ', cmd: 'TEXTMASK' },
+      { label: 'Bỏ che nền chữ', cmd: 'TEXTUNMASK' },
+      { label: 'Chữ & kích thước lên trên', cmd: 'TEXTTOFRONT' },
+      { label: 'Hatch xuống dưới', cmd: 'HATCHTOBACK' },
     ],
   },
   {
     label: 'Trợ giúp',
     items: [
       { label: 'Trợ giúp & danh sách lệnh', act: 'help', key: 'F1' },
+      { label: 'Giới thiệu', cmd: 'ABOUT' },
       { label: 'Mã nguồn (GitHub)', act: 'source' },
     ],
   },
@@ -347,6 +450,7 @@ export class App {
         zoomWindow: (a, b) => this.zoomWindow(a, b),
       },
       print: (m) => this.print(m),
+      ui: (a, args) => this.uiAction(a, args),
     };
     this.api = createApi({
       doc: this.doc,
@@ -404,14 +508,20 @@ export class App {
           <button data-act="svg" title="Xuất SVG">${ICONS.svg}</button>
         </div>
         <div class="actions right">
-          <label class="layer" title="Layer hiện hành (đang chọn đối tượng: chuyển chúng sang layer này)"><span class="dot"></span><select id="layer"></select></label>
           <button data-act="layers" title="Quản lý layer (LA)">${ICONS.layers}</button>
           <button data-act="props" title="Bảng thuộc tính (Ctrl+1)">${ICONS.props}</button>
           <button data-act="theme" title="Đổi nền sáng/tối">${ICONS.theme}</button>
           <button data-act="help" title="Trợ giúp (F1)">${ICONS.help}</button>
         </div>
       </header>
-      <div class="tabs" id="tabs" role="tablist" aria-label="Bản vẽ đang mở"></div>
+      <div class="tabsrow">
+        <div class="tabs" id="tabs" role="tablist" aria-label="Bản vẽ đang mở"></div>
+        <div class="propbar" aria-label="Thuộc tính hiện hành">
+          <label class="layer" title="Layer hiện hành (đang chọn đối tượng: chuyển chúng sang layer này)"><span class="dot"></span><select id="layer"></select></label>
+          <label class="layer prop" title="Màu hiện hành (đang chọn đối tượng: đổi màu chúng)"><span class="dot" id="colordot"></span><select id="colorsel"></select></label>
+          <label class="layer prop" title="Kiểu đường hiện hành (đang chọn đối tượng: đổi kiểu đường chúng)"><select id="ltsel"></select></label>
+        </div>
+      </div>
       <nav class="toolbar" aria-label="Công cụ">
         ${TOOLS.map((t) => (t === '|' ? '<span class="sep"></span>' : `<button data-cmd="${t}" title="${TOOL_LABEL[t]}">${ICONS[t]}</button>`)).join('')}
       </nav>
@@ -519,6 +629,28 @@ export class App {
       }
       this.input.focus();
     });
+    // Thanh thuộc tính: màu & kiểu đường (cho đối tượng chọn, hoặc hiện hành cho đối tượng mới).
+    const colorSel = this.root.querySelector<HTMLSelectElement>('#colorsel')!;
+    const ltSel = this.root.querySelector<HTMLSelectElement>('#ltsel')!;
+    const applyProp = (key: 'color' | 'linetype', v: string) => {
+      try {
+        if (v === 'OTHER') {
+          const c = prompt('Số màu ACI (1–255)', '8');
+          if (!c) return this.refreshLayers();
+          v = c;
+        }
+        if (this.selection.size && !this.running) {
+          this.print(this.api.run('CHPROP', { ids: [...this.selection], [key]: v }).message!);
+          this.selection.clear();
+        } else this.print(this.api.run(key === 'color' ? 'COLOR' : 'CELTYPE', { [key]: v }).message!);
+      } catch (e) {
+        this.print((e as Error).message);
+      }
+      this.refreshLayers();
+      this.input.focus();
+    };
+    colorSel.addEventListener('change', () => applyProp('color', colorSel.value));
+    ltSel.addEventListener('change', () => applyProp('linetype', ltSel.value));
     this.fileInput.addEventListener('change', async () => {
       const f = this.fileInput.files?.[0];
       this.fileInput.value = '';
@@ -698,6 +830,33 @@ export class App {
     if (dot) dot.style.background = aciToCss(l?.color ?? 7, THEMES[this.themeName].fg);
     const u = this.root.querySelector('#units');
     if (u) u.textContent = this.doc.units;
+    // Màu & kiểu đường hiện hành.
+    const colorSel = this.root.querySelector<HTMLSelectElement>('#colorsel');
+    const ltSel = this.root.querySelector<HTMLSelectElement>('#ltsel');
+    if (colorSel && ltSel) {
+      const cur = this.doc.getVar<number | undefined>('CECOLOR', undefined);
+      const base = [1, 2, 3, 4, 5, 6, 7, 8, 9, 30, 40, 140, 250];
+      const list = cur !== undefined && !base.includes(cur) ? [...base, cur] : base;
+      const names: Record<number, string> = { 1: 'Đỏ', 2: 'Vàng', 3: 'Xanh lá', 4: 'Lục lam', 5: 'Xanh dương', 6: 'Tím', 7: 'Trắng/Đen', 8: 'Xám', 9: 'Xám nhạt', 30: 'Cam', 40: 'Cam vàng', 140: 'Xanh trời', 250: 'Xám đậm' };
+      const csig = `${cur}|${this.themeName}`;
+      if (colorSel.dataset.sig !== csig) {
+        colorSel.innerHTML =
+          `<option value="BYLAYER">ByLayer</option>` +
+          list.map((c) => `<option value="${c}">${c} ${names[c] ?? ''}</option>`).join('') +
+          `<option value="OTHER">Màu khác…</option>`;
+        colorSel.dataset.sig = csig;
+      }
+      colorSel.value = cur === undefined ? 'BYLAYER' : String(cur);
+      const dotc = this.root.querySelector<HTMLElement>('#colordot');
+      if (dotc) dotc.style.background = aciToCss(cur ?? l?.color ?? 7, THEMES[this.themeName].fg);
+      const lts = ['BYLAYER', ...this.doc.linetypes.keys()];
+      const lsig = lts.join('|');
+      if (ltSel.dataset.sig !== lsig) {
+        ltSel.innerHTML = lts.map((n) => `<option value="${n}">${n === 'BYLAYER' ? 'ByLayer' : n}</option>`).join('');
+        ltSel.dataset.sig = lsig;
+      }
+      ltSel.value = this.doc.getVar<string>('CELTYPE', 'BYLAYER');
+    }
   }
 
   // ---------- Canvas ----------
@@ -760,6 +919,25 @@ export class App {
     if (this.propsOpen) this.refreshProps();
     this.lastRenderMs = performance.now() - t0;
     if (rs.stats) this.lastStats = rs.stats;
+  }
+
+  /** Ảnh PNG của vùng vẽ ở k điểm ảnh / px CSS (không có con trỏ, lưới theo cài đặt). */
+  private snapshotAt(k: number): string {
+    const c = document.createElement('canvas');
+    c.width = Math.round(this.vp.w * k);
+    c.height = Math.round(this.vp.h * k);
+    const g = c.getContext('2d')!;
+    g.setTransform(k, 0, 0, k, 0, 0);
+    const [cv, cg] = [this.canvas, this.g];
+    this.canvas = c;
+    this.g = g;
+    try {
+      this.draw(true);
+    } finally {
+      this.canvas = cv;
+      this.g = cg;
+    }
+    return c.toDataURL('image/png');
   }
 
   private snapshot(): string {
@@ -1088,6 +1266,12 @@ export class App {
       } else if (e.key === 'F10') {
         e.preventDefault();
         this.toggle('polar');
+      } else if (mod && e.key === '0') {
+        e.preventDefault();
+        this.uiAction(this.root.classList.contains('clean') ? 'cleanscreenoff' : 'cleanscreenon', {});
+      } else if (e.key === 'F2') {
+        e.preventDefault();
+        this.uiAction('textscr', {});
       } else if (mod && e.key === '1') {
         e.preventDefault();
         this.toggleProps();
@@ -1100,6 +1284,22 @@ export class App {
       } else if (mod && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
         e.preventDefault();
         this.redo();
+      } else if (mod && e.shiftKey && e.key.toLowerCase() === 'c' && !this.hasTextSelection()) {
+        e.preventDefault();
+        void this.start('COPYBASE');
+      } else if (mod && e.shiftKey && e.key.toLowerCase() === 'x' && !this.hasTextSelection()) {
+        e.preventDefault();
+        void this.start('CUTBASE');
+      } else if (mod && e.shiftKey && e.key.toLowerCase() === 'v' && document.activeElement === this.input && !this.input.value) {
+        e.preventDefault();
+        void this.start('PASTEBLOCK');
+      } else if (mod && e.key.toLowerCase() === 'x' && !this.hasTextSelection() && document.activeElement !== this.input) {
+        if (!this.selection.size) return;
+        e.preventDefault();
+        this.tryRun('CUTCLIP', { ids: [...this.selection] });
+      } else if (mod && e.key.toLowerCase() === 'x' && !this.hasTextSelection() && !this.input.value && this.selection.size) {
+        e.preventDefault();
+        this.tryRun('CUTCLIP', { ids: [...this.selection] });
       } else if (mod && e.key.toLowerCase() === 'c' && !this.hasTextSelection()) {
         if (!this.selection.size) return;
         e.preventDefault();
@@ -1373,6 +1573,113 @@ export class App {
       pd.reject(new CancelError());
       this.print('*Huỷ*');
     }
+  }
+
+  /** Thao tác giao diện được gọi từ lệnh (cmds/ui.ts). */
+  private uiAction(a: string, args: Record<string, unknown>): Record<string, unknown> | void {
+    const steps = Math.max(1, Math.round(Number(args.steps ?? 1)) || 1);
+    switch (a) {
+      case 'new':
+      case 'open':
+      case 'close':
+      case 'plot':
+      case 'grid':
+      case 'ortho':
+      case 'polar':
+      case 'layers':
+      case 'props':
+        // Chạy sau khi lệnh hiện tại kết thúc (tránh lồng lệnh).
+        setTimeout(() => this.action(a), 0);
+        return;
+      case 'preview':
+        setTimeout(() => this.showPlot(), 0);
+        return;
+      case 'osnap':
+        setTimeout(() => this.toggle('snap'), 0);
+        return;
+      case 'properties':
+        setTimeout(() => this.action('props'), 0);
+        return;
+      case 'layman':
+        setTimeout(() => this.showLayers(), 0);
+        return;
+      case 'qsave':
+        this.saveDxf();
+        return;
+      case 'saveas': {
+        const n = String(args.name ?? prompt('Lưu thành tên tệp', this.fileName) ?? '').trim();
+        if (!n) return;
+        this.fileName = n.replace(/\.dxf$/i, '') + '.dxf';
+        this.saveDxf();
+        return;
+      }
+      case 'saveall':
+        this.tabs.forEach((t, i) => {
+          const content = i === this.activeTab ? writeDxf(this.doc.toData()) : t.json ? writeDxf(JSON.parse(t.json)) : null;
+          if (content) this.download(content, t.name, 'application/dxf');
+          if (i === this.activeTab) this.doc.dirty = false;
+          else if (t.state) t.state.dirty = false;
+        });
+        this.renderTabs();
+        return { message: `Đã lưu ${this.tabs.length} bản vẽ` };
+      case 'closeall':
+        setTimeout(async () => {
+          for (let i = this.tabs.length - 1; i >= 0; i--) await this.closeTab(i);
+        }, 0);
+        return;
+      case 'exportsvg':
+        this.exportSvg();
+        return;
+      case 'pngout': {
+        const k = Math.min(4, Math.max(1, Number(args.scale ?? 2)));
+        this.pngOut(k);
+        return;
+      }
+      case 'clip':
+        store.set('mhcad.clip', String(args.data));
+        return;
+      case 'getclip':
+        return { data: store.get('mhcad.clip') ?? undefined };
+      case 'undo': {
+        let n = 0;
+        for (; n < steps && this.doc.undo(); n++);
+        this.selection.clear();
+        return { message: `Đã hoàn tác ${n} bước` };
+      }
+      case 'redo': {
+        let n = 0;
+        for (; n < steps && this.doc.redo(); n++);
+        return { message: `Đã làm lại ${n} bước` };
+      }
+      case 'regen':
+        this.index = null;
+        this.redraw();
+        return;
+      case 'textscr':
+        this.root.querySelector('.cmdline')?.classList.toggle('tall');
+        return;
+      case 'cleanscreenon':
+      case 'cleanscreenoff':
+        this.root.classList.toggle('clean', a === 'cleanscreenon');
+        setTimeout(() => this.resize(), 0);
+        return;
+      case 'about':
+        return { message: `MHCAD ${VERSION} — phần mềm CAD 2D miễn phí, mã nguồn mở GPL-3.0. ${this.reg.list().length} lệnh.` };
+      case 'download':
+        this.download(String(args.content), String(args.name), String(args.type ?? 'application/octet-stream'));
+        return;
+    }
+    throw new Error(`Thao tác giao diện chưa hỗ trợ: ${a}`);
+  }
+
+  /** Xuất ảnh PNG của vùng vẽ ở độ phân giải gấp k lần. */
+  private pngOut(k: number): void {
+    const url = this.snapshotAt(k);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = this.fileName.replace(/\.dxf$/i, '.png');
+    a.click();
+    this.print('Đã xuất ảnh PNG');
   }
 
   private undo(): void {
@@ -1664,25 +1971,8 @@ export class App {
   }
 
   private copySelection(): void {
-    const ents = [...this.selection].map((id) => this.doc.get(id)).filter((e): e is NonNullable<typeof e> => !!e);
-    if (!ents.length) return;
-    const b = ents.map(bbox).reduce((a, x) => ({ minX: Math.min(a.minX, x.minX), minY: Math.min(a.minY, x.minY), maxX: 0, maxY: 0 }));
-    const names = new Set<string>();
-    const collect = (list: { type: string; name?: string }[]) => {
-      for (const e of list)
-        if (e.type === 'INSERT' && e.name && !names.has(e.name)) {
-          names.add(e.name);
-          collect(this.doc.blocks.get(e.name)?.ents ?? []);
-        }
-    };
-    collect(ents);
-    const data = {
-      base: [b.minX, b.minY],
-      ents: ents.map(({ id: _id, ...rest }) => rest),
-      blocks: [...names].map((n) => this.doc.blocks.get(n)).filter(Boolean),
-    };
-    store.set('mhcad.clip', JSON.stringify(data));
-    this.print(`Đã sao chép ${ents.length} đối tượng (Ctrl+V để dán)`);
+    if (!this.selection.size) return;
+    this.tryRun('COPYCLIP', { ids: [...this.selection] });
   }
 
   private async pasteClip(): Promise<void> {

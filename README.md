@@ -21,6 +21,14 @@ Phần mềm CAD 2D **miễn phí, mã nguồn mở**, chạy ngay trên trình 
 - Nhanh với bản vẽ lớn (hàng chục nghìn đối tượng)
 - Dòng lệnh quen thuộc: gõ `L`, `C`, `REC`, `M`, `CO`, `O`…; toạ độ `x,y`, `@dx,dy`, `@dài<góc`; gõ số để vẽ theo hướng chuột
 - Bắt điểm (đầu mút, trung điểm, tâm, góc phần tư, giao điểm, vuông góc, **tiếp tuyến**), ORTHO, lưới
+- **Hơn 150 lệnh** (gần 310 tên gõ tắt), gồm:
+  - layer: LAYOFF, LAYISO, LAYMCUR, LAYMRG…;
+  - chọn nhanh: QSELECT, SELECTSIMILAR, ẩn / cô lập đối tượng;
+  - chữ: TCOUNT, TCASE, TEXTMASK, TXT2MTXT…;
+  - sửa đổi: LENGTHEN, DIVIDE, MEASURE, OVERKILL, ALIGN, PEDIT, ARRAYPATH…;
+  - kích thước: DIMBASELINE, DIMORDINATE, DIMARC, QDIM, MLEADER;
+  - TABLE (dán từ Excel), WIPEOUT, GOPY (góp ý bằng đám mây đỏ), CAL, MASSPROP, PURGE, WBLOCK.
+- Thanh thuộc tính: layer, màu, kiểu đường hiện hành; Ctrl+X / Ctrl+Shift+C / Ctrl+Shift+V; F2 lịch sử lệnh; Ctrl+0 toàn màn hình
 - Chọn bằng bấm, khung trái→phải (nằm trọn) và phải→trái (chạm khung)
 - Layer: tạo, màu, đặt hiện hành, khoá/tắt
 - Mở / lưu **DXF** (mở được bằng các phần mềm CAD phổ biến); đọc được block, kích thước, cung trong đa tuyến, ellipse, spline, bảng mã tiếng Việt cũ; chữ tiếng Việt giữ nguyên

@@ -99,7 +99,8 @@ export function plotSvg(doc: Drawing, o: PlotOptions): PlotResult {
       }
       case 'LWPOLYLINE': {
         const d = e.pts.map((p, i) => `${i ? 'L' : 'M'}${f(p[0])} ${f(p[1])}`).join('') + (e.closed ? 'Z' : '');
-        out.push(e.fill ? `<path d="${d}" fill="${col}" stroke="none"/>` : `<path d="${d}" ${st}/>`);
+        if (e.wipe) out.push(`<path d="${d}" fill="#fff" stroke="none"/>`);
+        else out.push(e.fill ? `<path d="${d}" fill="${col}" stroke="none"/>` : `<path d="${d}" ${st}/>`);
         break;
       }
       case 'POINT':
