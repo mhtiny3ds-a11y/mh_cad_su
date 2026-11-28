@@ -26,6 +26,11 @@ src/core/      không phụ thuộc DOM, kiểm thử được bằng Vitest
   cmds/hatch.ts  HATCH, HATCHEDIT, BOUNDARY, POINT (dò vùng kín khi bấm điểm)
   cmds/edit.ts   SETPROP, ARRAY, STRETCH, ELLIPSE, MLINE, PASTECLIP
   cmds/draw.ts   XLINE, RAY, DONUT, REVCLOUD, SPLINE, MTEXT, FIND
+  cmds/layers.ts LAYOFF, LAYISO, LAYMCUR… và chọn đối tượng (SELECTALL, QSELECT, SELECTSIMILAR, ẩn / cô lập)
+  cmds/text.ts   công cụ chữ (DDEDIT, TCOUNT, TCASE, TEXTMASK…), DRAWORDER, WIPEOUT
+  cmds/tools.ts  LENGTHEN, DIVIDE, OVERKILL, ALIGN, PEDIT, ARRAYPATH…, tra cứu (ID, CAL, MASSPROP), quản lý (PURGE, RENAME, COLOR, SETVAR)
+  cmds/annot2.ts DIMBASELINE, DIMORDINATE, DIMARC, QDIM, MLEADER, TABLE, CENTERMARK, GOPY…
+  cmds/ui.ts     lệnh cần giao diện (tệp, in, bộ nhớ tạm, UNDO n bước) — gọi ctx.ui; WBLOCK
   hatch.ts       mẫu tô, cắt nét mẫu theo biên, chia hình thang, findBoundary
   dwg.ts         DWG → DXF bằng LibreDWG WebAssembly (chạy trong src/ui/dwg-worker.ts)
   spatial.ts     chỉ mục lưới cho rê chuột / bắt điểm
@@ -48,7 +53,9 @@ src/ui/        giao diện
 1. **Mọi thay đổi bản vẽ đi qua lệnh** (`CommandDef.run`) và `Drawing.add/update/remove`. Không sửa `entities` trực tiếp,
    nếu không hoàn tác sẽ sai.
 2. Lệnh mới: khai báo `params` có mô tả tiếng Việt rõ ràng (AI đọc `mhcad.help()` để biết cách gọi), viết `run()` thuần dữ liệu,
-   rồi `interactive()` chỉ hỏi người dùng và gọi lại `run()`. Đăng ký trong `registry.ts`. Thêm kiểm thử trong `tests/`.
+   rồi `interactive()` chỉ hỏi người dùng và gọi lại `run()` (không có `interactive()` thì dòng lệnh tự hỏi các tham số
+   bắt buộc). Đăng ký trong `registry.ts`. Thêm kiểm thử trong `tests/`.
+6. Biến bản vẽ (`Drawing.setVar`, hoàn tác được): CECOLOR, CELTYPE, WIPEOUTFRAME… Tên bắt đầu bằng `_` là tạm, không ghi ra tệp.
 3. Góc lưu bằng độ, ngược chiều kim đồng hồ. Trục Y thế giới hướng lên.
 4. Mỗi tính năng mới kèm kiểm thử; sửa lỗi kèm kiểm thử tái hiện lỗi.
 5. Cập nhật `ROADMAP.md` (đánh dấu ✅) khi xong một mục.

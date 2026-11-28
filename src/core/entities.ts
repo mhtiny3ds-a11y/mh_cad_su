@@ -63,6 +63,8 @@ export interface PolylineEnt extends Base {
   closed: boolean;
   /** Tô đặc (mũi tên kích thước, SOLID nhập từ DXF). */
   fill?: boolean;
+  /** Vùng che (WIPEOUT): tô bằng màu nền, che các đối tượng vẽ trước nó. */
+  wipe?: boolean;
 }
 export interface TextEnt extends Base {
   type: 'TEXT';
@@ -85,13 +87,15 @@ export interface DimStyle {
   dec: number;
 }
 
-export type DimKind = 'linear' | 'aligned' | 'radius' | 'diameter' | 'angular';
+export type DimKind = 'linear' | 'aligned' | 'radius' | 'diameter' | 'angular' | 'ordinate' | 'arclen';
 
 /**
  * Kích thước. Ý nghĩa của pts theo kind:
  *  - linear / aligned: [điểm 1, điểm 2, vị trí đường kích thước]; linear có rot (0° = ngang, 90° = đứng)
  *  - radius: [tâm, điểm trên đường tròn] · diameter: [điểm 1, điểm đối diện]
  *  - angular: [đỉnh góc, điểm trên cạnh 1, điểm trên cạnh 2, vị trí cung]
+ *  - arclen (chiều dài cung): [tâm, đầu cung, cuối cung, vị trí đường kích thước]
+ *  - ordinate (toạ độ): [điểm cần đo, đầu đường dẫn]; rot = 90 đo Y, còn lại đo X
  */
 export interface DimEnt extends Base {
   type: 'DIMENSION';
@@ -395,7 +399,7 @@ export function distanceTo(e: AnyEnt, p: Vec): number {
     const c = textCorners(e);
     return pointInPolygon(p, c) ? 0 : Math.min(...c.map((q, i) => distToSegment(p, q, c[(i + 1) % 4])));
   }
-  if (e.type === 'LWPOLYLINE' && e.fill && pointInPolygon(p, e.pts)) return 0;
+  if (e.type === 'LWPOLYLINE' && (e.fill || e.wipe) && pointInPolygon(p, e.pts)) return 0;
   if (e.type === 'HATCH' && e.loops.filter((l) => pointInPolygon(p, l)).length % 2 === 1) return 0;
   if (e.type === 'POINT') return dist(p, e.p);
   if (isComplex(e)) {

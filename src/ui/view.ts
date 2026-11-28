@@ -476,6 +476,22 @@ export function render(g: CanvasRenderingContext2D, s: RenderState): void {
       continue;
     }
     const sel = s.selection.has(e.id);
+    if (e.type === 'LWPOLYLINE' && e.wipe) {
+      // Vùng che: vẽ hết những gì đứng trước nó, rồi tô màu nền đè lên.
+      batch.flush(g, vp);
+      const wp = new Path2D();
+      addPath(wp, e, vp);
+      g.fillStyle = theme.bg;
+      g.fill(wp);
+      if (sel || s.hover === e.id || doc.getVar<number>('WIPEOUTFRAME', 1) !== 0) {
+        g.strokeStyle = sel ? theme.select : aciToCss(e.color ?? doc.layers.get(e.layer)?.color ?? 7, theme.fg);
+        g.setLineDash(sel ? [6, 4] : []);
+        g.lineWidth = 1;
+        g.stroke(wp);
+        g.setLineDash([]);
+      }
+      continue;
+    }
     queueEntity(batch, e, s, sel ? theme.select : null, s.hover === e.id ? 2.5 : 1);
   }
   const tf = performance.now();

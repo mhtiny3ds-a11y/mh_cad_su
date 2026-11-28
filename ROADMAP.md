@@ -46,6 +46,21 @@ Nguyên tắc: làm **ít lệnh nhưng chạy chắc**, có kiểm thử. Mỗi
 - ✅ MTEXT nhiều dòng (hộp soạn, tự ngắt dòng theo bề rộng khung), FIND tìm & thay chữ
 - ✅ Bắt điểm tiếp tuyến (TAN)
 
+## ✅ v0.4 (phần 2) — Bộ lệnh mở rộng (đối chiếu danh sách tính năng AicoCad 0.3.77)
+
+- ✅ Layer: LAYOFF, LAYFRZ, LAYLCK, LAYULK, LAYON, LAYISO, LAYUNISO, LAYCUR, LAYMCUR, LAYMCH, COPYTOLAYER, LAYMRG
+- ✅ Chọn: SELECTALL, QSELECT, SELECTSIMILAR, HIDEOBJECTS, ISOLATEOBJECTS, UNISOLATEOBJECTS
+- ✅ Chữ: DDEDIT, SCALETEXT, TCOUNT, TCASE, TORIENT, TXT2MTXT, JUSTIFYTEXT, TCIRCLE, TEXTMASK, TEXTUNMASK
+- ✅ Thứ tự vẽ: DRAWORDER, TEXTTOFRONT, HATCHTOBACK; WIPEOUT (vẽ, đọc DXF)
+- ✅ Sửa: LENGTHEN, DIVIDE, MEASURE, OVERKILL, ALIGN, OOPS, BREAKATPOINT, REVERSE, SETBYLAYER, PEDIT, ARRAYPATH
+- ✅ Tra cứu & quản lý: ID, CAL, MASSPROP, STATUS, TIME, BCOUNT, PURGE, RENAME, BLOCKREPLACE, UNITS, COLOR, CELTYPE, SETVAR
+- ✅ Kích thước & ghi chú: DIMBASELINE, DIMORDINATE, DIMARC, QDIM, DIMEDIT, DIMSPACE, MLEADER, TABLE, CENTERMARK, CENTERLINE,
+  BREAKLINE, GOPY
+- ✅ Tệp & bộ nhớ tạm: QSAVE, SAVEAS, SAVEALL, CLOSEALL, PNGOUT, WBLOCK, COPYCLIP, CUTCLIP, COPYBASE, CUTBASE, PASTEBLOCK,
+  PASTEORIG, UNDO n bước, MREDO, TEXTSCR (F2), CLEANSCREEN (Ctrl+0)
+- ✅ Thanh menu 12 mục, thanh thuộc tính (layer / màu / kiểu đường hiện hành)
+- ✅ Lệnh chưa có hỏi đáp riêng tự hỏi tham số bắt buộc trên dòng lệnh
+
 ## v0.4 — Còn thiếu
 
 - [ ] Chuyển mã TCVN3 / VNI → Unicode khi mở file cũ
@@ -55,7 +70,8 @@ Nguyên tắc: làm **ít lệnh nhưng chạy chắc**, có kiểm thử. Mỗi
 - [ ] Đa tuyến có cung (bulge) giữ nguyên khi sửa (hiện chia thành đoạn thẳng)
 - [ ] FILLET/CHAMFER cho đa tuyến và cung; OFFSET có cung
 - [ ] Đường dóng theo điểm (object tracking)
-- [ ] WIPEOUT (cần vẽ theo thứ tự đối tượng)
+- [ ] AutoLISP (trình thông dịch + APPLOAD), độ dày nét (lineweight), thuộc tính block (ATTDEF / ATTEDIT), GROUP, BEDIT
+- [ ] PDFIMPORT, GRADIENT, thư viện mẫu hatch, nhập ảnh tham chiếu
 - [ ] Ghi DXF R2000+ (LWPOLYLINE, HATCH gốc, handle), giữ lại dữ liệu chưa hiểu khi ghi lại
 - [ ] Bảng alias tự sửa; nạp file `.pgp` của người dùng; WBLOCK, thư viện block
 

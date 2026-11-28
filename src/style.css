@@ -715,14 +715,31 @@ dialog::backdrop {
 }
 
 /* Tab bản vẽ */
-.tabs {
+.tabsrow {
   grid-area: tabs;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+}
+.propbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  flex: none;
+}
+.propbar .layer {
+  height: 26px;
+  margin: 0;
+}
+.tabs {
+  flex: 1;
   display: flex;
   align-items: flex-end;
   gap: 2px;
   padding: 3px 8px 0;
-  background: var(--panel-2);
-  border-bottom: 1px solid var(--border);
   overflow-x: auto;
   scrollbar-width: none;
   min-width: 0;
@@ -831,4 +848,31 @@ button.primary {
   .toolbar .sep {
     width: 80px;
   }
+}
+
+/* Thanh thuộc tính: màu, kiểu đường */
+.layer.prop select {
+  max-width: 120px;
+}
+@media (max-width: 1100px) {
+  .layer.prop {
+    display: none;
+  }
+}
+/* Cửa sổ lịch sử lệnh (F2) */
+.cmdline.tall .history {
+  height: 40vh;
+  max-height: 40vh;
+}
+/* Toàn màn hình vẽ (Ctrl+0) */
+#app.clean {
+  grid-template-rows: 0 0 1fr auto auto;
+}
+#app.clean .topbar,
+#app.clean .tabsrow,
+#app.clean .toolbar {
+  display: none;
+}
+#app.clean .stage {
+  grid-column: 1 / -1;
 }

@@ -35,7 +35,9 @@ type Change =
   | { k: 'clayer'; before: string; after: string }
   | { k: 'block'; name: string; before: BlockDef | null; after: BlockDef | null }
   | { k: 'dimstyle'; before: DimStyle; after: DimStyle }
-  | { k: 'ltscale'; before: number; after: number };
+  | { k: 'ltscale'; before: number; after: number }
+  | { k: 'var'; name: string; before: unknown; after: unknown }
+  | { k: 'order'; before: number[]; after: number[] };
 
 export interface Tx {
   label: string;
@@ -53,6 +55,8 @@ export class Drawing {
   ltscale = 50;
   currentLayer = '0';
   units = 'mm';
+  /** Biến bản vẽ: CECOLOR (màu hiện hành), CELTYPE (kiểu đường hiện hành), PDSIZE… */
+  vars: Record<string, unknown> = {};
   private nextId = 1;
   private undoStack: Tx[] = [];
   private redoStack: Tx[] = [];
@@ -155,7 +159,13 @@ export class Drawing {
       const v = c[side];
       if (v) this.blocks.set(c.name, v);
       else this.blocks.delete(c.name);
-    } else if (c.k === 'dimstyle') this.dimStyle = c[side];
+    } else if (c.k === 'var' && c.name === '$UNITS') this.units = c[side] as string;
+    else if (c.k === 'var') {
+      const v = c[side];
+      if (v === undefined) delete this.vars[c.name];
+      else this.vars[c.name] = v;
+    } else if (c.k === 'order') this.reorder(c[side]);
+    else if (c.k === 'dimstyle') this.dimStyle = c[side];
     else if (c.k === 'ltscale') this.ltscale = c[side];
     else this.currentLayer = c[side];
   }
@@ -219,7 +229,10 @@ export class Drawing {
 
   /** Đối tượng đang hiển thị (layer bật). */
   visible(): Entity[] {
-    return this.all().filter((e) => this.layers.get(e.layer)?.visible !== false);
+    // HIDDEN: đối tượng bị ẩn tạm (HIDEOBJECTS / ISOLATEOBJECTS).
+    const hid = this.vars._HIDDEN as number[] | undefined;
+    const hs = hid?.length ? new Set(hid) : null;
+    return this.all().filter((e) => this.layers.get(e.layer)?.visible !== false && !(hs && hs.has(e.id)));
   }
 
   isEditable(e: Entity): boolean {
@@ -273,6 +286,56 @@ export class Drawing {
     this.record({ k: 'block', name: def.name, before, after });
   }
 
+  /** Xoá định nghĩa block (không kiểm tra còn được dùng hay không). */
+  removeBlock(name: string): void {
+    const before = this.blocks.get(name);
+    if (!before) return;
+    this.blocks.delete(name);
+    this.record({ k: 'block', name, before, after: null });
+  }
+
+  setUnits(u: string): void {
+    if (u === this.units) return;
+    const before = this.units;
+    this.units = u;
+    this.record({ k: 'var', name: '$UNITS', before, after: u });
+  }
+
+  getVar<T>(name: string, def: T): T {
+    const v = this.vars[name.toUpperCase()];
+    return v === undefined ? def : (v as T);
+  }
+
+  setVar(name: string, value: unknown): void {
+    const k = name.toUpperCase();
+    const before = this.vars[k];
+    if (before === value) return;
+    if (value === undefined) delete this.vars[k];
+    else this.vars[k] = value;
+    this.record({ k: 'var', name: k, before, after: value });
+  }
+
+  private reorder(ids: number[]): void {
+    const old = new Map(this.entities);
+    this.entities.clear();
+    for (const id of ids) {
+      const e = old.get(id);
+      if (e) this.entities.set(id, e);
+    }
+    for (const [id, e] of old) if (!this.entities.has(id)) this.entities.set(id, e);
+  }
+
+  /** Thứ tự vẽ: đưa các đối tượng lên trên cùng (front) hoặc xuống dưới cùng (back). */
+  drawOrder(ids: number[], where: 'front' | 'back'): void {
+    const before = [...this.entities.keys()];
+    const set = new Set(ids);
+    const moved = before.filter((id) => set.has(id));
+    const rest = before.filter((id) => !set.has(id));
+    const after = where === 'front' ? [...rest, ...moved] : [...moved, ...rest];
+    this.reorder(after);
+    this.record({ k: 'order', before, after });
+  }
+
   setDimStyle(patch: Partial<DimStyle>): void {
     const before = this.dimStyle;
     this.dimStyle = { ...before, ...patch };
@@ -310,6 +373,7 @@ export class Drawing {
     this.dimStyle = { ...DEFAULT_DIMSTYLE };
     this.ltscale = 50;
     this.units = 'mm';
+    this.vars = {};
     this.activate();
     this.layers.set('0', { name: '0', color: 7, visible: true, locked: false });
     this.currentLayer = '0';
@@ -333,6 +397,7 @@ export class Drawing {
       ltscale: this.ltscale,
       currentLayer: this.currentLayer,
       units: this.units,
+      vars: { ...this.vars },
       nextId: this.nextId,
       undo: this.undoStack,
       redo: this.redoStack,
@@ -354,6 +419,7 @@ export class Drawing {
     this.ltscale = s.ltscale;
     this.currentLayer = s.currentLayer;
     this.units = s.units;
+    this.vars = { ...s.vars };
     this.nextId = s.nextId;
     this.undoStack = s.undo;
     this.redoStack = s.redo;
@@ -379,6 +445,7 @@ export class Drawing {
     }
     this.currentLayer = data.currentLayer && this.layers.has(data.currentLayer) ? data.currentLayer : '0';
     if (data.units) this.units = data.units;
+    if (data.vars) this.vars = { ...data.vars };
     this.dirty = false;
     this.emit();
   }
@@ -394,6 +461,8 @@ export class Drawing {
       linetypes: Object.fromEntries([...this.linetypes].filter(([k]) => !(k in BUILTIN_LINETYPES))),
       dimStyle: { ...this.dimStyle },
       ltscale: this.ltscale,
+      // Biến bắt đầu bằng "_" là tạm (OOPS, đối tượng ẩn…), không lưu vào file.
+      vars: Object.fromEntries(Object.entries(this.vars).filter(([k]) => !k.startsWith('_'))),
       entities: this.all().map(({ id: _id, ...rest }) => rest as NewEntity),
     };
   }
@@ -409,6 +478,7 @@ export interface DocState {
   ltscale: number;
   currentLayer: string;
   units: string;
+  vars: Record<string, unknown>;
   nextId: number;
   undo: Tx[];
   redo: Tx[];
@@ -426,5 +496,6 @@ export interface DrawingData {
   linetypes?: Record<string, number[]>;
   dimStyle?: DimStyle;
   ltscale?: number;
+  vars?: Record<string, unknown>;
   entities: NewEntity[];
 }

@@ -136,7 +136,7 @@ const AREA: CommandDef = {
 
 let lastDimId: number | null = null;
 
-function addDim(ctx: Ctx, args: Args, kind: DimKind, p: Vec[], rot?: number): Entity {
+export function addDim(ctx: Ctx, args: Args, kind: DimKind, p: Vec[], rot?: number): Entity {
   const d: Omit<DimEnt, 'id'> = {
     type: 'DIMENSION',
     kind,
@@ -164,7 +164,7 @@ export function autoLinearRot(p1: Vec, p2: Vec, loc: Vec): number {
   return Math.abs(p2[0] - p1[0]) >= Math.abs(p2[1] - p1[1]) ? 0 : 90;
 }
 
-const DIM_COMMON = [
+export const DIM_COMMON = [
   { name: 'text', type: 'string' as const, desc: 'Ghi đè chữ; "<>" là giá trị đo (ví dụ "<> mm")' },
   ...COMMON,
 ];
@@ -421,7 +421,7 @@ const DIMCONTINUE: CommandDef = {
 };
 
 /** Điểm đặt sao cho kích thước mới nằm trên cùng đường kích thước với kích thước b. */
-function projectLoc(b: DimEnt, q: Vec): Vec {
+export function projectLoc(b: DimEnt, q: Vec): Vec {
   const a = deg2rad(b.rot ?? 0);
   const u: Vec = [Math.cos(a), Math.sin(a)];
   const n: Vec = [-u[1], u[0]];
